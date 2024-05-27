@@ -1,70 +1,139 @@
-### Project README
+# README
 
-This project implements functionalities for pricing and analyzing financial options using the Black-Scholes model. It includes classes and functions for calculating option prices, deltas, gammas, vegas, and thetas for both call and put options.
+## Overview
 
-#### Components:
+This project provides a comprehensive set of tools for financial options pricing and simulations. It includes classes and functions to handle options, compute their Greeks using the Black-Scholes model, perform Monte Carlo simulations, and interface with Python using `pybind11`. 
 
-1. **`NormalDistribution` Class**: 
-   - A class representing a normal distribution with methods to compute the probability density function (PDF) and cumulative distribution function (CDF).
+## Structure
 
-2. **`Option` Class**: 
-   - A class representing option products with attributes for strike price, expiration date, and type (call or put). It provides methods for retrieving and setting these attributes, as well as calculating option prices and Greeks (delta, gamma, vega, theta).
+The project is divided into the following components:
 
-3. **`BSCall` and `BSPut` Functions**: 
-   - Functions to calculate the Black-Scholes call and put prices, respectively.
+1. **Orderbook**: A placeholder class for managing orders.
+2. **Option**: A class for handling option products and computing their prices and Greeks using the Black-Scholes model.
+3. **Black-Scholes Functions**: Standalone functions for computing option prices and Greeks based on the Black-Scholes model.
+4. **Monte Carlo Simulator**: A class for performing Monte Carlo simulations for option pricing.
+5. **Python Bindings**: Integration with Python using `pybind11` for all major classes and functions.
 
-4. **`BSCall_Delta` and `BSPut_Delta` Functions**: 
-   - Functions to calculate the Black-Scholes call and put deltas, respectively.
+## Files
 
-5. **`BSCall_Gamma` and `BSPut_Gamma` Functions**: 
-   - Functions to calculate the Black-Scholes call and put gammas, respectively.
+- **Orderbook.h**: Contains the definition of the `Orderbook` class.
+- **options.h**: Contains the definition of the `Option` class.
+- **black-sholes.h**: Contains the definitions of Black-Scholes pricing functions.
+- **normal_distribution.h**: Contains the definition of the `NormalDistribution` class.
+- **MonteCarloSimulator.h**: Contains the definition of the `MonteCarloSimulator` class.
+- **implied_volatility.h**: Contains the implementation of the implied volatility calculation.
+- **pybind11_module.cpp**: Contains the `pybind11` module definitions for all classes and functions.
 
-6. **`BSCall_Theta` and `BSPut_Theta` Functions**: 
-   - Functions to calculate the Black-Scholes call and put thetas, respectively.
+## Installation
 
-7. **`BSCall_Vega` and `BSPut_Vega` Functions**: 
-   - Functions to calculate the Black-Scholes call and put vegas, respectively.
+1. **Clone the repository**:
+    ```sh
+    git clone https://github.com/your-repo/financial-options.git
+    cd financial-options
+    ```
 
-#### Usage:
+2. **Build the project**:
+    Ensure you have CMake and a C++ compiler installed. Then run:
+    ```sh
+    mkdir build
+    cd build
+    cmake ..
+    make
+    ```
 
-1. **`NormalDistribution` Class**:
-   - Instantiate the class with the desired mean and standard deviation.
-   - Use the `pdf(x)` method to compute the probability density function at a given value `x`.
-   - Use the `cdf(x)` method to compute the cumulative distribution function at a given value `x`.
+3. **Install Python dependencies**:
+    ```sh
+    pip install pybind11
+    ```
 
-2. **`Option` Class**:
-   - Instantiate the class with the desired strike price, expiration date, and type (call or put).
-   - Use the getter methods (`get_strike()`, `get_expiry()`, `get_type()`) to retrieve option attributes.
-   - Use the setter methods (`set_strike()`, `set_expiry()`, `set_type()`) to set option attributes.
-   - Use the `price()`, `delta()`, `gamma()`, `vega()`, and `theta()` methods to calculate various option metrics.
+## Usage
 
-#### Example:
+### Option Pricing
 
+1. **Import the modules in Python**:
+    ```python
+    import options
+    import BlackScholes
+    import MonteCarloSimulator
+    ```
+
+2. **Fetch the data (assuming `getData` function is defined in `getData.py`)**:
+    ```python
+    from getData import getData
+
+    stockTicker = "AAPL"
+    callOrPut = "call"
+    expiry = 1
+    spot_price, volatility, strike_price = getData(stockTicker, callOrPut)
+    ```
+
+3. **Create an Option instance and calculate the price**:
+    ```python
+    option = options.Option(strike_price, expiry, callOrPut)
+    optionPrice = option.price(
+        spot_price,
+        1,      # time
+        volatility,
+        1       # rate
+    )
+
+    print(f"Option Price is ${optionPrice:.2f}")
+    ```
+
+### Monte Carlo Simulation
+
+1. **Create a Monte Carlo Simulator instance and run the simulation**:
+    ```python
+    simulator = MonteCarloSimulator.MonteCarloSimulator(
+        num_simulations=10000,
+        spot_price=spot_price,
+        strike_price=strike_price,
+        risk_free_rate=1,  # as a percentage
+        volatility=volatility,
+        maturity=expiry
+    )
+
+    simulated_price = simulator.simulate()
+    print(f"Simulated Option Price is ${simulated_price:.2f}")
+    ```
+
+## Additional Features
+
+### Greeks Calculation
+
+The `Option` class provides methods to calculate the Greeks:
+- **Delta**: `option.delta(spot, time, vol, rate)`
+- **Gamma**: `option.gamma(spot, time, vol, rate)`
+- **Vega**: `option.vega(spot, time, vol, rate)`
+- **Theta**: `option.theta(spot, time, vol, rate)`
+
+### Implied Volatility
+
+Use the `implied_vol` function to calculate implied volatility given an option price:
 ```cpp
-#include <iostream>
-#include "options.h"
+#include "implied_volatility.h"
 
-int main() {
-    Option option(100, 1, "call");
-    double price = option.price(110, 0.5, 20, 5);
-    double delta = option.delta(110, 0.5, 20, 5);
-    double gamma = option.gamma(110, 0.5, 20, 5);
-    double vega = option.vega(110, 0.5, 20, 5);
-    double theta = option.theta(110, 0.5, 20, 5);
-
-    std::cout << "Price: " << price << std::endl;
-    std::cout << "Delta: " << delta << std::endl;
-    std::cout << "Gamma: " << gamma << std::endl;
-    std::cout << "Vega: " << vega << std::endl;
-    std::cout << "Theta: " << theta << std::endl;
-
-    return 0;
-}
+double impliedVol = implied_vol(optionPrice, spot, strike, expiry, rate);
 ```
 
-#### Notes:
+## Notes
 
-- Ensure that you have included all necessary header files and linked additional math libraries as required.
-- Always validate input parameters to avoid errors and unexpected behavior.
+- Ensure that the additional header files such as `additional-maths.h` are available and contain necessary functions like `norm.cdf` and `norm.pdf`.
+- Error handling is implemented to catch invalid inputs for strike price, expiry, and type.
+- The provided `Orderbook` class is currently a placeholder and needs implementation based on specific requirements.
 
-Feel free to reach out for any questions or feedback!
+## License
+
+This project is licensed under the MIT License. See the LICENSE file for more details.
+
+## Contributions
+
+Contributions are welcome! Please fork the repository and submit a pull request for any enhancements or bug fixes.
+
+## Contact
+
+For any questions or issues, please open an issue on GitHub or contact the repository owner.
+
+---
+
+This README provides an overview of the financial options project, details on its structure and usage, and instructions for installation and running examples. It is designed to help users quickly get started with options pricing and simulation using the provided classes and functions.
