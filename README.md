@@ -28,7 +28,7 @@ The project is divided into the following components:
 
 1. **Clone the repository**:
     ```sh
-    git clone https://github.com/your-repo/financial-options.git
+    git clone https://github.com/jideoyelayo1/black-scholes-options.git
     cd financial-options
     ```
 
@@ -41,9 +41,9 @@ The project is divided into the following components:
     make
     ```
 
-3. **Install Python dependencies**:
+3. **Install Pybind11**:
     ```sh
-    pip install pybind11
+    git clojne https://github.com/pybind/pybind11.git
     ```
 
 ## Usage
