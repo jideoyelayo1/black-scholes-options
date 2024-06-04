@@ -1,1 +1,1 @@
-#include "NormalDistribution.h"
+#include "NormalDistribution.hpp"
