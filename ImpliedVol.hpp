@@ -5,7 +5,7 @@
 #include "NormalDistribution.hpp" // Check if this contains norm.cdf and norm.pdf
 
 
-double implied_vol(double price, double spot, double strike, double expiry, double rate) {
+inline double implied_vol(double price, double spot, double strike, double expiry, double rate) {
     rate /= 100;
     double tolerance = 0.00000001;
     double theta = 1;

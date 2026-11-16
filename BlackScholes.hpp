@@ -4,7 +4,7 @@
 #include "NormalDistribution.hpp"
 
 
-double BSCall(double spot, double time, double strike, double expiry, double vol, double rate) {
+inline double BSCall(double spot, double time, double strike, double expiry, double vol, double rate) {
     /*Calculates the Black-Scholes call price.
 
   Parameters
@@ -38,7 +38,7 @@ double BSCall(double spot, double time, double strike, double expiry, double vol
     return spot * norm.cdf(d1) - strike * exp(-rate * (expiry - time)) * norm.cdf(d2);
 }
 
-double BSPut(double spot, double time, double strike, double expiry, double vol, double rate) {
+inline double BSPut(double spot, double time, double strike, double expiry, double vol, double rate) {
     /*
         Calculates the Black-Scholes put price.
 
@@ -77,7 +77,7 @@ double BSPut(double spot, double time, double strike, double expiry, double vol,
 }
 
 
-double BSCall_Delta(double spot, double time, double strike, double expiry, double vol, double rate) {
+inline double BSCall_Delta(double spot, double time, double strike, double expiry, double vol, double rate) {
     /*
         Calculates the Black-Scholes call delta.
 
@@ -112,7 +112,7 @@ double BSCall_Delta(double spot, double time, double strike, double expiry, doub
 }
 
 
-double BSPut_Delta(double spot, double time, double strike, double expiry, double vol, double rate) {
+inline double BSPut_Delta(double spot, double time, double strike, double expiry, double vol, double rate) {
     /*
         Calculates the Black-Scholes put delta.
 
@@ -149,7 +149,7 @@ double BSPut_Delta(double spot, double time, double strike, double expiry, doubl
 }
 
 
-double BSCall_Gamma(double spot, double time, double strike, double expiry, double vol, double rate) {
+inline double BSCall_Gamma(double spot, double time, double strike, double expiry, double vol, double rate) {
     /*
         Calculates the Black-Scholes call gamma.
 
@@ -186,7 +186,7 @@ double BSCall_Gamma(double spot, double time, double strike, double expiry, doub
 }
 
 
-double BSPut_Gamma(double spot, double time, double strike, double expiry, double vol, double rate) {
+inline double BSPut_Gamma(double spot, double time, double strike, double expiry, double vol, double rate) {
     /*
         Calculates the Black-Scholes put gamma.
 
@@ -223,7 +223,7 @@ double BSPut_Gamma(double spot, double time, double strike, double expiry, doubl
 }
 
 
-double BSCall_Theta(double spot, double time, double strike, double expiry, double vol, double rate) {
+inline double BSCall_Theta(double spot, double time, double strike, double expiry, double vol, double rate) {
     /*
         Calculates the Black-Scholes call theta, scaled to the 1 day change in option
         value due to time decay.
@@ -264,7 +264,7 @@ double BSCall_Theta(double spot, double time, double strike, double expiry, doub
     return theta / 365;
 }
 
-double BSPut_Theta(double spot, double time, double strike, double expiry, double vol, double rate) {
+inline double BSPut_Theta(double spot, double time, double strike, double expiry, double vol, double rate) {
     /*
         Calculates the Black-Scholes put theta, scaled to the 1 day change in option
         value due to time decay.
@@ -305,7 +305,7 @@ double BSPut_Theta(double spot, double time, double strike, double expiry, doubl
     return theta / 365;
 }
 
-double BSCall_Vega(double spot, double time, double strike, double expiry, double vol, double rate) {
+inline double BSCall_Vega(double spot, double time, double strike, double expiry, double vol, double rate) {
     /*
         Calculates the Black-Scholes call vega.
 
@@ -341,7 +341,7 @@ double BSCall_Vega(double spot, double time, double strike, double expiry, doubl
     return spot * sqrt(expiry - time) * norm.pdf(d1) / 100;
 }
 
-double BSPut_Vega(double spot, double time, double strike, double expiry, double vol, double rate) {/*
+inline double BSPut_Vega(double spot, double time, double strike, double expiry, double vol, double rate) {/*
     Calculates the Black-Scholes call vega.
 
     Parameters
