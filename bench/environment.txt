@@ -1,0 +1,7 @@
+Darwin arm64
+27.0.1
+Apple M1 Pro
+Apple clang version 21.0.0 (clang-2100.3.34.2)
+cmake version 4.4.0
+build: CMAKE_BUILD_TYPE=Release, C++17, flags -O3 -DNDEBUG -Wall -Wextra
+plot: Python 3.13.14 matplotlib 3.11.2 numpy 2.5.5

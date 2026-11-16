@@ -1,0 +1,26 @@
+== implied vol round trip (call prices; grid in tests/grid.hpp)
+cases 630; well-conditioned (vega >= 1e-5 per vol point) 404, worst |error| 2.911e-10 vol points
+iterations, well-conditioned: median 5, max 19
+ill-conditioned and solved: 69, of which 39 off by more than 1e-6 points; worst |error| 2.218e+01 vol points; iterations median 31, max 71
+rejected at the no-arbitrage bounds 157; above the 1000% bracket 0; not converged in 100 iterations 0
+worst price residual |BS(solved vol) - price| over every solved case: 2.842e-14
+
+== Monte Carlo, European call S=100 K=100 T=1 vol=20% r=3%; closed form 9.413403383853; parity residual 4.0e-15
+seeds 1..1000 at every path count; mt19937_64 + std::normal_distribution
+     paths     mean est         rmse  median|err|      mean se  coverage   coverage 95% CI
+       100     9.495877   1.4460e+00   1.0156e+00   1.4085e+00    0.9480   0.9342 to 0.9618
+       316     9.390386   8.1291e-01   5.5288e-01   7.9051e-01    0.9390   0.9242 to 0.9538
+      1000     9.439227   4.5340e-01   3.1589e-01   4.4716e-01    0.9490   0.9354 to 0.9626
+      3162     9.418397   2.5197e-01   1.7108e-01   2.5095e-01    0.9480   0.9342 to 0.9618
+     10000     9.415211   1.4190e-01   9.5435e-02   1.4112e-01    0.9410   0.9264 to 0.9556
+     31623     9.414830   7.9840e-02   5.2232e-02   7.9359e-02    0.9490   0.9354 to 0.9626
+    100000     9.414593   4.5286e-02   2.8928e-02   4.4627e-02    0.9400   0.9253 to 0.9547
+    316228     9.413648   2.5653e-02   1.6771e-02   2.5096e-02    0.9470   0.9331 to 0.9609
+   1000000     9.413336   1.4200e-02   9.6483e-03   1.4111e-02    0.9460   0.9320 to 0.9600
+   3162278     9.413333   7.8722e-03   5.1514e-03   7.9351e-03    0.9520   0.9388 to 0.9652
+  10000000     9.413471   4.3825e-03   2.9594e-03   4.4623e-03    0.9530   0.9399 to 0.9661
+log-log slope, rmse against paths: -0.5026 +/- 0.0008 (standard error of the fit)
+log-log slope, median |error| against paths: -0.5069 +/- 0.0019
+log-log slope, mean standard error against paths: -0.4998 +/- 0.0001
+pooled coverage of the 95% interval: 10412 of 11000 = 0.9465
+
