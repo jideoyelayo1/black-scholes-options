@@ -1,4 +1,4 @@
-// Checks for the closed-form prices, the Greeks and the Option class.
+// Checks for the closed-form prices, the Greeks, the Option class and the implied-vol solver.
 // Every tolerance below was fixed before the first run; bench/RESULTS.md explains each one.
 // Prints one FAIL line per failed check, then the worst-case residuals, and exits non-zero on any failure.
 #include <cmath>
@@ -7,6 +7,7 @@
 #include <stdexcept>
 
 #include "BlackScholes.hpp"
+#include "ImpliedVol.hpp"
 #include "options.hpp"
 #include "grid.hpp"
 
@@ -148,11 +149,37 @@ static void option_class() {
     CHECK(put.price(100, 0, 20, 5) == BSPut(100, 0, 100, 1, 20, 5), "put dispatch");
 }
 
+static void implied_vol_checks() {
+    // Prices at or beyond the no-arbitrage bounds have no implied vol and must be rejected.
+    const double lower = 120 - 100 * std::exp(-0.03);
+    CHECK(throws([&] { implied_vol(lower, 120, 100, 1, 3); }), "price at the lower bound must throw");
+    CHECK(throws([&] { implied_vol(120, 120, 100, 1, 3); }), "price equal to spot must throw");
+    CHECK(throws([&] { implied_vol(0, 80, 100, 1, 3); }), "zero price for an OTM call must throw");
+    CHECK(throws([&] { implied_vol(-1, 80, 100, 1, 3); }), "negative price must throw");
+
+    // Round trip over the grid. Asserted where the price pins the vol down: vega >= 1e-5 per vol point,
+    // so a price rounding error of ~1e-13 moves the vol by less than 1e-6 points. The other cases are
+    // ill-conditioned; bench/study.cpp records what the solver does there.
+    int asserted = 0;
+    double worst = 0;
+    for (double S : kSpots) for (double T : kExpiries) for (double vol : kVols) for (double r : kRates) {
+        if (BSCall_Vega(S, 0, kStrike, T, vol, r) < 1e-5) continue;
+        ++asserted;
+        const double price = BSCall(S, 0, kStrike, T, vol, r);
+        double got = NAN;
+        try { got = implied_vol(price, S, kStrike, T, r); } catch (const std::exception&) {}
+        worst = std::fmax(worst, std::isnan(got) ? INFINITY : std::fabs(got - vol));
+        CHECK(near(got, vol, 0, 1e-6), "implied vol S=%g T=%g vol=%g r=%g got %.12g", S, T, vol, r, got);
+    }
+    std::printf("implied vol round trip: %d well-conditioned cases, worst |error| %.3e vol points (tolerance 1e-6)\n", asserted, worst);
+}
+
 int main() {
     reference_values();
     parity_bounds_and_greeks();
     boundaries();
     option_class();
+    implied_vol_checks();
     std::printf("%d checks, %d failed\n", checks, failures);
     return failures == 0 ? 0 : 1;
 }
