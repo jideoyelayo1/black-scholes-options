@@ -35,6 +35,9 @@ inline double BSCall(double spot, double time, double strike, double expiry, dou
 
     NormalDistribution norm(0, 1);
 
+    // At expiry or zero vol d1 is 0/0 at the forward; the price is then the discounted payoff.
+    if (vol * sqrt(expiry - time) == 0) return fmax(spot - strike * exp(-rate * (expiry - time)), 0.0);
+
     return spot * norm.cdf(d1) - strike * exp(-rate * (expiry - time)) * norm.cdf(d2);
 }
 
@@ -72,6 +75,9 @@ inline double BSPut(double spot, double time, double strike, double expiry, doub
     double d2 = (log(spot / strike) + (rate - pow(vol, 2) / 2) * (expiry - time)) / vol / sqrt(expiry - time);
 
     NormalDistribution norm(0, 1);
+
+    // At expiry or zero vol d1 is 0/0 at the forward; the price is then the discounted payoff.
+    if (vol * sqrt(expiry - time) == 0) return fmax(strike * exp(-rate * (expiry - time)) - spot, 0.0);
 
     return -spot * norm.cdf(-d1) + strike * exp(-rate * (expiry - time)) * norm.cdf(-d2);
 }
@@ -182,7 +188,8 @@ inline double BSCall_Gamma(double spot, double time, double strike, double expir
 
     double d1 = (log(spot / strike) + (rate + pow(vol, 2) / 2) * (expiry - time)) / vol / sqrt(expiry - time);
 
-    return norm.pdf(d1) / spot / vol / sqrt(expiry - time);
+    // pdf(d1) is 0 when vol * sqrt(expiry - time) is 0 away from the strike; skip the 0/0.
+    return norm.pdf(d1) == 0 ? 0 : norm.pdf(d1) / spot / vol / sqrt(expiry - time);
 }
 
 
@@ -219,7 +226,8 @@ inline double BSPut_Gamma(double spot, double time, double strike, double expiry
 
     double d1 = (log(spot / strike) + (rate + pow(vol, 2) / 2) * (expiry - time)) / vol / sqrt(expiry - time);
 
-    return norm.pdf(d1) / spot / vol / sqrt(expiry - time);
+    // pdf(d1) is 0 when vol * sqrt(expiry - time) is 0 away from the strike; skip the 0/0.
+    return norm.pdf(d1) == 0 ? 0 : norm.pdf(d1) / spot / vol / sqrt(expiry - time);
 }
 
 
@@ -259,7 +267,8 @@ inline double BSCall_Theta(double spot, double time, double strike, double expir
 
     NormalDistribution norm(0, 1);
 
-    double theta = -spot * vol * norm.pdf(d1) / 2 / sqrt(expiry - time) - rate * strike * exp(-rate * (expiry - time)) * norm.cdf(d2);
+    // pdf(d1) is 0 when vol * sqrt(expiry - time) is 0 away from the strike; skip the 0/0.
+    double theta = (norm.pdf(d1) == 0 ? 0 : -spot * vol * norm.pdf(d1) / 2 / sqrt(expiry - time)) - rate * strike * exp(-rate * (expiry - time)) * norm.cdf(d2);
 
     return theta / 365;
 }
@@ -300,7 +309,8 @@ inline double BSPut_Theta(double spot, double time, double strike, double expiry
 
     double d2 = (log(spot / strike) + (rate - pow(vol, 2) / 2) * (expiry - time)) / vol / sqrt(expiry - time);
 
-    double theta = -spot * vol * norm.pdf(d1) / 2 / sqrt(expiry - time) + rate * strike * exp(-rate * (expiry - time)) * norm.cdf(-d2);
+    // pdf(d1) is 0 when vol * sqrt(expiry - time) is 0 away from the strike; skip the 0/0.
+    double theta = (norm.pdf(d1) == 0 ? 0 : -spot * vol * norm.pdf(d1) / 2 / sqrt(expiry - time)) + rate * strike * exp(-rate * (expiry - time)) * norm.cdf(-d2);
 
     return theta / 365;
 }

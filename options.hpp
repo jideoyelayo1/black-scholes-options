@@ -90,7 +90,7 @@ public:
         -------
         None
         */
-        throw std::invalid_argument("Strike price can not be empty");
+        if (!(_strike > 0)) throw std::invalid_argument("Strike price must be positive");
         strike = _strike;
     }
 
@@ -108,7 +108,7 @@ public:
         -------
         None
         */
-        throw std::invalid_argument("Must provide an expiry");
+        if (!(_expiry >= 0)) throw std::invalid_argument("Expiry must not be negative");
         expiry = _expiry;
     }
 
