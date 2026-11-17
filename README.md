@@ -2,129 +2,79 @@
 
 ## Overview
 
-This project provides a comprehensive set of tools for financial options pricing and simulations. It includes classes and functions to handle options, compute their Greeks using the Black-Scholes model, perform Monte Carlo simulations, and interface with Python using `pybind11`. 
+Header-only C++17 tools for pricing European options under the Black-Scholes model: closed-form prices and Greeks, an `Option` class, an implied-volatility solver and a seeded Monte Carlo pricer that reports its standard error and 95% interval. Constant rate, no dividends, no early exercise.
 
-## Structure
-
-The project is divided into the following components:
-
-1. **Orderbook**: A placeholder class for managing orders.
-2. **Option**: A class for handling option products and computing their prices and Greeks using the Black-Scholes model.
-3. **Black-Scholes Functions**: Standalone functions for computing option prices and Greeks based on the Black-Scholes model.
-4. **Monte Carlo Simulator**: A class for performing Monte Carlo simulations for option pricing.
-5. **Python Bindings**: Integration with Python using `pybind11` for all major classes and functions.
+The tests and the study in `bench/` check each method against an independent one: the Greeks against finite differences of the price, the solver by round trip, the Monte Carlo price against the closed form, and put-call parity directly. Results, method and the defects the audit found are in [bench/RESULTS.md](bench/RESULTS.md).
 
 ## Files
 
-- **Orderbook.h**: Contains the definition of the `Orderbook` class.
-- **options.h**: Contains the definition of the `Option` class.
-- **black-sholes.h**: Contains the definitions of Black-Scholes pricing functions.
-- **normal_distribution.h**: Contains the definition of the `NormalDistribution` class.
-- **MonteCarloSimulator.h**: Contains the definition of the `MonteCarloSimulator` class.
-- **implied_volatility.h**: Contains the implementation of the implied volatility calculation.
-- **pybind11_module.cpp**: Contains the `pybind11` module definitions for all classes and functions.
+- **BlackScholes.hpp**: `BSCall`, `BSPut` and the delta, gamma, vega and theta of each.
+- **options.hpp** / **options.cpp**: the `Option` class (strike, expiry, `"call"` or `"put"`), which dispatches to the functions above.
+- **ImpliedVol.hpp**: `implied_vol`, the implied volatility of a call price.
+- **MonteCarlo.hpp**: `MCPrice`, the Monte Carlo price with its standard error and 95% interval.
+- **NormalDistribution.hpp** / **NormalDistribution.cpp**: normal pdf and cdf.
+- **main.cpp**: a minimal program that builds an `Option`.
+- **tests/**: `test_pricing.cpp` (prices, Greeks, `Option`, solver), `test_mc.cpp` (Monte Carlo) and `grid.hpp` (the parameter grid).
+- **bench/**: the study (`study.cpp`), the scripts that run it and draw the figure, and the committed outputs.
 
-## Installation
+## Conventions
 
-1. **Clone the repository**:
-    ```sh
-    git clone https://github.com/jideoyelayo1/black-scholes-options.git
-    cd financial-options
-    ```
+- `vol` and `rate` are percentages: 20 means 20%.
+- `time` is the valuation date and `expiry` the expiry date, both in years; the time to expiry is `expiry - time`.
+- Vega is per vol point (per 1%); theta is per calendar day (per year / 365).
+- At expiry or at zero vol the price is the discounted payoff. The Greeks take their limits there away from the strike; at the strike itself they are undefined and return NaN.
+- `implied_vol(price, spot, strike, expiry, rate, &iterations)` takes a call price and a time to expiry. It throws `std::invalid_argument` for a price outside `(max(S - K e^{-rT}, 0), S)`.
 
-2. **Build the project**:
-    Ensure you have CMake and a C++ compiler installed. Then run:
-    ```sh
-    mkdir build
-    cd build
-    cmake ..
-    make
-    ```
+## Build and test
 
-3. **Install Pybind11**:
-    ```sh
-    git clojne https://github.com/pybind/pybind11.git
-    ```
+Needs CMake 3.16 or later and a C++17 compiler.
+
+```sh
+git clone https://github.com/jideoyelayo1/black-scholes-options.git
+cd black-scholes-options
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+ctest --test-dir build --output-on-failure
+```
+
+## The study
+
+```sh
+bench/run.sh          # tests, study and figure; about 8 minutes on an Apple M1 Pro
+bench/run.sh 100      # the same with 100 seeds per path count instead of 1000
+```
+
+`bench/run.sh` writes the test log, the study's CSVs and summary, and `bench/mc_convergence.png`. The figure needs matplotlib, which the script installs with [uv](https://docs.astral.sh/uv/) into `bench/.venv`; the C++ code has no Python dependency.
+
+Results (details, tolerances and method in [bench/RESULTS.md](bench/RESULTS.md)):
+
+- **Closed form.** Put-call parity holds to 2.8e-14 over a 630-point grid of spot, expiry, vol and rate; every Greek agrees with a finite difference of the price within its stated tolerance; reference values from Hull match.
+- **Implied vol.** Every grid point with vega >= 1e-5 per vol point round-trips to within 2.9e-10 vol points, in at most 19 iterations (median 5). Below that vega the price barely moves with vol: prices that round to a no-arbitrage bound are rejected, and 39 of the other 69 solve to a vol that reproduces the price but misses the input by more than 1e-6 points.
+- **Monte Carlo.** For S = K = 100, vol 20%, r 3%, T = 1 (closed form 9.4134), over 1000 seeds at each of 11 path counts from 10^2 to 10^7: RMS error falls with slope -0.5026 +/- 0.0008 on log-log axes, and the 95% interval covers the closed form in 94.65% of 11,000 runs.
+
+![Monte Carlo estimate with its 95% interval, and error against paths](bench/mc_convergence.png)
 
 ## Usage
 
-### Option Pricing
-
-1. **Import the modules in Python**:
-    ```python
-    import options
-    import BlackScholes
-    import MonteCarloSimulator
-    ```
-
-2. **Fetch the data (assuming `getData` function is defined in `getData.py`)**:
-    ```python
-    from getData import getData
-
-    stockTicker = "AAPL"
-    callOrPut = "call"
-    expiry = 1
-    spot_price, volatility, strike_price = getData(stockTicker, callOrPut)
-    ```
-
-3. **Create an Option instance and calculate the price**:
-    ```python
-    option = options.Option(strike_price, expiry, callOrPut)
-    optionPrice = option.price(
-        spot_price,
-        1,      # time
-        volatility,
-        1       # rate
-    )
-
-    print(f"Option Price is ${optionPrice:.2f}")
-    ```
-
-### Monte Carlo Simulation
-
-1. **Create a Monte Carlo Simulator instance and run the simulation**:
-    ```python
-    simulator = MonteCarloSimulator.MonteCarloSimulator(
-        num_simulations=10000,
-        spot_price=spot_price,
-        strike_price=strike_price,
-        risk_free_rate=1,  # as a percentage
-        volatility=volatility,
-        maturity=expiry
-    )
-
-    simulated_price = simulator.simulate()
-    print(f"Simulated Option Price is ${simulated_price:.2f}")
-    ```
-
-## Additional Features
-
-### Greeks Calculation
-
-The `Option` class provides methods to calculate the Greeks:
-- **Delta**: `option.delta(spot, time, vol, rate)`
-- **Gamma**: `option.gamma(spot, time, vol, rate)`
-- **Vega**: `option.vega(spot, time, vol, rate)`
-- **Theta**: `option.theta(spot, time, vol, rate)`
-
-### Implied Volatility
-
-Use the `implied_vol` function to calculate implied volatility given an option price:
 ```cpp
-#include "implied_volatility.h"
+#include "options.hpp"
+#include "ImpliedVol.hpp"
+#include "MonteCarlo.hpp"
 
-double impliedVol = implied_vol(optionPrice, spot, strike, expiry, rate);
+Option call(100, 1, "call");                      // strike 100, expiry 1 year
+double price = call.price(100, 0, 20, 3);         // spot 100, today, vol 20%, rate 3%
+double delta = call.delta(100, 0, 20, 3);
+double vol = implied_vol(price, 100, 100, 1, 3);  // 20
+MCResult mc = MCPrice(true, 100, 0, 100, 1, 20, 3, 1000000, 42);  // mc.price, mc.std_error, mc.ci_low, mc.ci_high
 ```
 
-## Notes
+## Limits
 
-- Ensure that the additional header files such as `additional-maths.h` are available and contain necessary functions like `norm.cdf` and `norm.pdf`.
-- Error handling is implemented to catch invalid inputs for strike price, expiry, and type.
-- The provided `Orderbook` class is currently a placeholder and needs implementation based on specific requirements.
+European options under constant rate and volatility only: no dividends, early exercise, stochastic volatility, transaction costs or calibration to market data. The checks show internal consistency, not that the model describes a market. The solver handles calls; a put's implied vol is that of the call with the same strike and expiry, by parity. Seeded Monte Carlo results reproduce with the same standard library; `std::normal_distribution` differs between libc++ and libstdc++.
 
 ## License
 
-This project is licensed under the MIT License. See the LICENSE file for more details.
+This project is licensed under the MIT License.
 
 ## Contributions
 
@@ -133,7 +83,3 @@ Contributions are welcome! Please fork the repository and submit a pull request 
 ## Contact
 
 For any questions or issues, please open an issue on GitHub or contact the repository owner.
-
----
-
-This README provides an overview of the financial options project, details on its structure and usage, and instructions for installation and running examples. It is designed to help users quickly get started with options pricing and simulation using the provided classes and functions.

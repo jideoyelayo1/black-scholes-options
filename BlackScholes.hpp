@@ -4,7 +4,7 @@
 #include "NormalDistribution.hpp"
 
 
-double BSCall(double spot, double time, double strike, double expiry, double vol, double rate) {
+inline double BSCall(double spot, double time, double strike, double expiry, double vol, double rate) {
     /*Calculates the Black-Scholes call price.
 
   Parameters
@@ -35,10 +35,13 @@ double BSCall(double spot, double time, double strike, double expiry, double vol
 
     NormalDistribution norm(0, 1);
 
+    // At expiry or zero vol d1 is 0/0 at the forward; the price is then the discounted payoff.
+    if (vol * sqrt(expiry - time) == 0) return fmax(spot - strike * exp(-rate * (expiry - time)), 0.0);
+
     return spot * norm.cdf(d1) - strike * exp(-rate * (expiry - time)) * norm.cdf(d2);
 }
 
-double BSPut(double spot, double time, double strike, double expiry, double vol, double rate) {
+inline double BSPut(double spot, double time, double strike, double expiry, double vol, double rate) {
     /*
         Calculates the Black-Scholes put price.
 
@@ -73,11 +76,14 @@ double BSPut(double spot, double time, double strike, double expiry, double vol,
 
     NormalDistribution norm(0, 1);
 
+    // At expiry or zero vol d1 is 0/0 at the forward; the price is then the discounted payoff.
+    if (vol * sqrt(expiry - time) == 0) return fmax(strike * exp(-rate * (expiry - time)) - spot, 0.0);
+
     return -spot * norm.cdf(-d1) + strike * exp(-rate * (expiry - time)) * norm.cdf(-d2);
 }
 
 
-double BSCall_Delta(double spot, double time, double strike, double expiry, double vol, double rate) {
+inline double BSCall_Delta(double spot, double time, double strike, double expiry, double vol, double rate) {
     /*
         Calculates the Black-Scholes call delta.
 
@@ -112,7 +118,7 @@ double BSCall_Delta(double spot, double time, double strike, double expiry, doub
 }
 
 
-double BSPut_Delta(double spot, double time, double strike, double expiry, double vol, double rate) {
+inline double BSPut_Delta(double spot, double time, double strike, double expiry, double vol, double rate) {
     /*
         Calculates the Black-Scholes put delta.
 
@@ -149,7 +155,7 @@ double BSPut_Delta(double spot, double time, double strike, double expiry, doubl
 }
 
 
-double BSCall_Gamma(double spot, double time, double strike, double expiry, double vol, double rate) {
+inline double BSCall_Gamma(double spot, double time, double strike, double expiry, double vol, double rate) {
     /*
         Calculates the Black-Scholes call gamma.
 
@@ -182,11 +188,12 @@ double BSCall_Gamma(double spot, double time, double strike, double expiry, doub
 
     double d1 = (log(spot / strike) + (rate + pow(vol, 2) / 2) * (expiry - time)) / vol / sqrt(expiry - time);
 
-    return norm.pdf(d1) / spot / vol / sqrt(expiry - time);
+    // pdf(d1) is 0 when vol * sqrt(expiry - time) is 0 away from the strike; skip the 0/0.
+    return norm.pdf(d1) == 0 ? 0 : norm.pdf(d1) / spot / vol / sqrt(expiry - time);
 }
 
 
-double BSPut_Gamma(double spot, double time, double strike, double expiry, double vol, double rate) {
+inline double BSPut_Gamma(double spot, double time, double strike, double expiry, double vol, double rate) {
     /*
         Calculates the Black-Scholes put gamma.
 
@@ -219,11 +226,12 @@ double BSPut_Gamma(double spot, double time, double strike, double expiry, doubl
 
     double d1 = (log(spot / strike) + (rate + pow(vol, 2) / 2) * (expiry - time)) / vol / sqrt(expiry - time);
 
-    return norm.pdf(d1) / spot / vol / sqrt(expiry - time);
+    // pdf(d1) is 0 when vol * sqrt(expiry - time) is 0 away from the strike; skip the 0/0.
+    return norm.pdf(d1) == 0 ? 0 : norm.pdf(d1) / spot / vol / sqrt(expiry - time);
 }
 
 
-double BSCall_Theta(double spot, double time, double strike, double expiry, double vol, double rate) {
+inline double BSCall_Theta(double spot, double time, double strike, double expiry, double vol, double rate) {
     /*
         Calculates the Black-Scholes call theta, scaled to the 1 day change in option
         value due to time decay.
@@ -259,12 +267,13 @@ double BSCall_Theta(double spot, double time, double strike, double expiry, doub
 
     NormalDistribution norm(0, 1);
 
-    double theta = -spot * vol * norm.pdf(d1) / 2 / sqrt(expiry - time) - rate * strike * exp(-rate * (expiry - time)) * norm.cdf(d2);
+    // pdf(d1) is 0 when vol * sqrt(expiry - time) is 0 away from the strike; skip the 0/0.
+    double theta = (norm.pdf(d1) == 0 ? 0 : -spot * vol * norm.pdf(d1) / 2 / sqrt(expiry - time)) - rate * strike * exp(-rate * (expiry - time)) * norm.cdf(d2);
 
     return theta / 365;
 }
 
-double BSPut_Theta(double spot, double time, double strike, double expiry, double vol, double rate) {
+inline double BSPut_Theta(double spot, double time, double strike, double expiry, double vol, double rate) {
     /*
         Calculates the Black-Scholes put theta, scaled to the 1 day change in option
         value due to time decay.
@@ -300,12 +309,13 @@ double BSPut_Theta(double spot, double time, double strike, double expiry, doubl
 
     double d2 = (log(spot / strike) + (rate - pow(vol, 2) / 2) * (expiry - time)) / vol / sqrt(expiry - time);
 
-    double theta = -spot * vol * norm.pdf(d1) / 2 / sqrt(expiry - time) + rate * strike * exp(-rate * (expiry - time)) * norm.cdf(-d2);
+    // pdf(d1) is 0 when vol * sqrt(expiry - time) is 0 away from the strike; skip the 0/0.
+    double theta = (norm.pdf(d1) == 0 ? 0 : -spot * vol * norm.pdf(d1) / 2 / sqrt(expiry - time)) + rate * strike * exp(-rate * (expiry - time)) * norm.cdf(-d2);
 
     return theta / 365;
 }
 
-double BSCall_Vega(double spot, double time, double strike, double expiry, double vol, double rate) {
+inline double BSCall_Vega(double spot, double time, double strike, double expiry, double vol, double rate) {
     /*
         Calculates the Black-Scholes call vega.
 
@@ -341,7 +351,7 @@ double BSCall_Vega(double spot, double time, double strike, double expiry, doubl
     return spot * sqrt(expiry - time) * norm.pdf(d1) / 100;
 }
 
-double BSPut_Vega(double spot, double time, double strike, double expiry, double vol, double rate) {/*
+inline double BSPut_Vega(double spot, double time, double strike, double expiry, double vol, double rate) {/*
     Calculates the Black-Scholes call vega.
 
     Parameters
