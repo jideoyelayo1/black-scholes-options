@@ -5,10 +5,13 @@
 //    public functions and limits, no raw functions, no test hooks;
 // 1. known answers: Hull's textbook values, put-call parity, the no-arbitrage bounds and limiting cases;
 // 2. agreement with the native build (web/driver.cpp, through the library directly) on the parameter
-//    grid of tests/grid.hpp, call and put, price and every Greek;
-// 3. implied volatility: round trips over the grid, agreement with the native solver, and its refusals;
-// 4. Monte Carlo: seeded results against the native build's, repeatability, the estimate against the
-//    closed form, and the standard error against the number of paths;
+//    grid of tests/grid.hpp and on two seeded random samples (one over the whole allowed range, one
+//    near the money), call and put, price and every Greek; negative prices, by rounding, counted;
+// 3. implied volatility: round trips over the same points, agreement with the native solver, and its
+//    refusals;
+// 4. Monte Carlo: seeded results against the native build's, repeatability, pinned results, the
+//    estimate against the closed form, the standard error against the number of paths, and how the
+//    estimate fails as vol x sqrt(T) grows (reported, not asserted beyond vol x sqrt(T) = 2);
 // 5. every refusal by name: wrong types, missing and extra arguments, NaN, infinities, negatives,
 //    zero, values beyond the limits; the limits themselves accepted, with finite results at every
 //    corner of the allowed ranges;
@@ -143,8 +146,15 @@ const scales = (c) => {
 function compareClosedForm(label, cases) {
   const rows = native(cases.map((c) => `bs ${c.type} ${c.spot} ${c.strike} ${c.expiry} ${c.vol} ${c.rate}`));
   const stats = OUTPUTS.map(() => ({ identical: 0, worst: 0 }));
+  let negative = 0, mostNegative = 0;
   cases.forEach((c, i) => {
     const w = M.price(c), s = scales(c);
+    // a price below zero can only be rounding: at most 1e-12 of its scale
+    if (w.price < 0) {
+      negative++;
+      mostNegative = Math.min(mostNegative, w.price / s[0]);
+      check(w.price >= -1e-12 * s[0], `${label}: negative price ${JSON.stringify(c)}: ${w.price}`);
+    }
     OUTPUTS.forEach((k, j) => {
       const n = fromBits(rows[i][j + 1]);
       if (Object.is(w[k], n)) stats[j].identical++;
@@ -154,9 +164,36 @@ function compareClosedForm(label, cases) {
     });
   });
   console.log(`native agreement, ${label} (${cases.length} cases): ` +
-    OUTPUTS.map((k, j) => `${k} ${stats[j].identical} bit-identical, worst ${stats[j].worst.toExponential(2)}`).join('; ') + ' (tolerance 1e-12 of scale)');
+    OUTPUTS.map((k, j) => `${k} ${stats[j].identical} bit-identical, worst ${stats[j].worst.toExponential(2)}`).join('; ') + ' (tolerance 1e-12 of scale); ' +
+    `${negative} negative prices, the most negative ${mostNegative.toExponential(2)} of S + K e^{-rT}`);
 }
+// Seeded samples: spot, strike, expiry and vol log-uniform and rate uniform over the allowed ranges;
+// and near the money, strike log-uniform from 1 to 10^4, spot within a factor 2 of it, expiry from a
+// day to 10 years, vol 5% to 200%, rate -5% to 15%. Calls and puts alternate.
+function mulberry32(seed) {
+  return () => {
+    seed = (seed + 0x6d2b79f5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+const rnd = mulberry32(20261118);
+const clamp = (x, lo, hi) => Math.min(hi, Math.max(lo, x));
+const logUniform = (lo, hi) => clamp(Math.exp(Math.log(lo) + rnd() * (Math.log(hi) - Math.log(lo))), lo, hi);
+const SAMPLE = 20000;
+const wide = Array.from({ length: SAMPLE }, (_, i) => ({
+  type: i % 2 ? 'put' : 'call', spot: logUniform(LIMITS.spot.min, LIMITS.spot.max), strike: logUniform(LIMITS.strike.min, LIMITS.strike.max),
+  expiry: logUniform(LIMITS.expiry.min, LIMITS.expiry.max), vol: logUniform(LIMITS.vol.min, LIMITS.vol.max),
+  rate: LIMITS.rate.min + rnd() * (LIMITS.rate.max - LIMITS.rate.min),
+}));
+const nearTheMoney = Array.from({ length: SAMPLE }, (_, i) => {
+  const strike = logUniform(1, 1e4);
+  return { type: i % 2 ? 'put' : 'call', spot: strike * logUniform(0.5, 2), strike, expiry: logUniform(1 / 365, 10), vol: logUniform(5, 200), rate: -5 + 20 * rnd() };
+});
 compareClosedForm('grid', gridPoints.flatMap((g) => [{ type: 'call', ...g }, { type: 'put', ...g }]));
+compareClosedForm('random over the allowed ranges', wide);
+compareClosedForm('random near the money', nearTheMoney);
 
 // 3. implied volatility. A grid point is well conditioned when vega >= 1e-7 x (S + K e^{-rT}) per vol
 // point: the price's rounding error, about 1e-16 of that scale, then moves the vol by under 1e-8
@@ -164,8 +201,8 @@ compareClosedForm('grid', gridPoints.flatMap((g) => [{ type: 'call', ...g }, { t
 const NAMED = { below_lower_bound: 'invalid_argument', above_upper_bound: 'invalid_argument', vol_above_bracket: 'domain_error', not_converged: 'runtime_error' };
 function compareImpliedVol(label, points) {
   const cases = points.map((g) => {
-    const p = M.price({ type: 'call', ...g });
-    return { ...g, price: p.price, well: p.vega >= 1e-7 * (g.spot + discountedStrike(g)) };
+    const p = M.price({ ...without(g, 'type'), type: 'call' });
+    return { ...without(g, 'type'), price: p.price, well: p.vega >= 1e-7 * (g.spot + discountedStrike(g)) };
   });
   const rows = native(cases.map((c) => `iv ${c.price} ${c.spot} ${c.strike} ${c.expiry} ${c.rate}`));
   let well = 0, worstRoundTrip = 0, worstNative = 0, atBound = 0, maxIterations = 0;
@@ -197,6 +234,8 @@ function compareImpliedVol(label, points) {
     `outcome as native's everywhere except ${atBound} prices within 1e-12 of the lower bound`);
 }
 compareImpliedVol('grid', gridPoints);
+compareImpliedVol('random over the allowed ranges', wide);
+compareImpliedVol('random near the money', nearTheMoney);
 {
   const iv = (price, spot = 120, strike = 100, expiry = 1, rate = 3) => M.impliedVol({ price, spot, strike, expiry, rate });
   const lower = 120 - 100 * Math.exp(-0.03);
@@ -244,6 +283,17 @@ compareImpliedVol('grid', gridPoints);
   console.log(`Monte Carlo against native: ${runs.length} seeded runs of 10^6 paths, ${identical} bit-identical in all four outputs, ` +
     `worst relative difference ${worst.toExponential(2)} (tolerance 1e-12)`);
 
+  // Pinned: the WebAssembly module's own result, bit for bit, so that a change of behaviour shows and
+  // so that other machines (CI) can be seen to give the same bits
+  const pinned = M.monteCarlo({ ...CASES[0], paths: 1e6, seed: 42 });
+  const bitsOf = (x) => {
+    const b = new DataView(new ArrayBuffer(8));
+    b.setFloat64(0, x);
+    return b.getBigUint64(0).toString(16).padStart(16, '0');
+  };
+  check(FIELDS.map((k) => bitsOf(pinned[k])).join() === '4022de48166ef0c6,3f8cf65e61c02bf4,4022d0171d1dc5f8,4022ec790fc01b94',
+    `pinned Monte Carlo result ${JSON.stringify(pinned)}: ${FIELDS.map((k) => bitsOf(pinned[k])).join()}`);
+
   // Same seed, same result; another seed, another result.
   const a = M.monteCarlo({ ...CASES[0], paths: 10000, seed: 1 }), b = M.monteCarlo({ ...CASES[0], paths: 10000, seed: 1 });
   check(JSON.stringify(a) === JSON.stringify(b) && Object.is(a.price, b.price), 'same seed, same result');
@@ -264,7 +314,26 @@ compareImpliedVol('grid', gridPoints);
   const series = [1e2, 1e3, 1e4, 1e5, 1e6].map((paths) => M.monteCarlo({ ...CASES[0], paths, seed: 1 }).stdError);
   check(series.every((s, i) => i === 0 || s < series[i - 1]), `standard error does not fall with paths: ${series}`);
   console.log(`Monte Carlo against the closed form, 10^6 paths, seed 42: z = ${z.join(', ')} (bound 4); standard error ratio for 4x paths ${ratio.toFixed(4)} ` +
-    `(0.5 +/- 0.05); standard error at 10^2..10^6 paths, seed 1: ${series.map((s) => s.toPrecision(3)).join(', ')}`);
+    `(0.5 +/- 0.05); standard error at 10^2..10^6 paths, seed 1: ${series.map((s) => s.toPrecision(3)).join(', ')}; ` +
+    `pinned result for seed 42 (${pinned.price}, standard error ${pinned.stdError}) bit for bit`);
+
+  // As vol x sqrt(T) grows, the payoff's distribution gets so skewed that the sample misses the rare
+  // paths that carry the price, and the standard error, estimated from the same sample, misses them
+  // too. Call, S = K = 100, r = 3%: coverage of the 95% interval over seeds 1-20 at 10^5 paths, and
+  // z at 10^6 paths, seed 42. Asserted only up to vol x sqrt(T) = 2.
+  const rows2 = [[20, 1], [100, 1], [100, 4], [200, 4], [300, 5], [1000, 1]].map(([vol, expiry]) => {
+    const c = { type: 'call', spot: 100, strike: 100, expiry, vol, rate: 3 };
+    let covered = 0;
+    for (let seed = 1; seed <= 20; seed++) {
+      const r = M.monteCarlo({ ...c, paths: 1e5, seed });
+      covered += r.ciLow <= r.closedForm && r.closedForm <= r.ciHigh;
+    }
+    const r = M.monteCarlo({ ...c, paths: 1e6, seed: 42 }), width = (vol / 100) * Math.sqrt(expiry);
+    const score = (r.price - r.closedForm) / r.stdError;
+    if (width <= 2) check(Math.abs(score) <= 4 && covered >= 15, `Monte Carlo at vol x sqrt(T) = ${width}: z = ${score}, covered ${covered} of 20`);
+    return `${width.toFixed(1)}: ${covered}/20 covered, estimate ${r.price.toPrecision(5)} +/- ${r.stdError.toPrecision(3)} against ${r.closedForm.toPrecision(5)}, z = ${score.toFixed(2)}`;
+  });
+  console.log(`Monte Carlo as vol x sqrt(T) grows: ${rows2.join('; ')}`);
 }
 
 // 5. refusals, by name
