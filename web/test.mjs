@@ -212,13 +212,15 @@ function compareImpliedVol(label, points) {
     return { ...without(g, 'type'), price: p.price, well: p.vega >= 1e-7 * (g.spot + discountedStrike(g)) };
   });
   const rows = native(cases.map((c) => `iv ${c.price} ${c.spot} ${c.strike} ${c.expiry} ${c.rate}`));
-  let well = 0, worstRoundTrip = 0, worstNative = 0, atBound = 0, maxIterations = 0;
+  let well = 0, worstRoundTrip = 0, worstNative = 0, atBound = 0, maxIterations = 0, largestFailing = 0;
   const outcomes = {};
   cases.forEach((c, i) => {
     const w = M.impliedVol({ price: c.price, spot: c.spot, strike: c.strike, expiry: c.expiry, rate: c.rate }), n = rows[i];
     const outcome = w.ok ? 'ok' : w.error, at = JSON.stringify(c);
     outcomes[outcome] = (outcomes[outcome] ?? 0) + 1;
     if (w.ok) maxIterations = Math.max(maxIterations, w.iterations);
+    // not_converged comes only from prices exponentially small beside the spot: the largest, as a fraction of it
+    if (w.error === 'not_converged') largestFailing = Math.max(largestFailing, c.price / c.spot);
     // Within 1e-12 of S + K e^{-rT} of the lower bound max(S - K e^{-rT}, 0) (a price at the
     // in-the-money bound, or a tiny one far out of the money) the two builds' rounding decides: one
     // may refuse it, or stop at 100 iterations, where the other solves it.
@@ -239,7 +241,8 @@ function compareImpliedVol(label, points) {
   console.log(`implied vol, ${label} (${cases.length} call prices): outcomes ${JSON.stringify(outcomes)}, at most ${maxIterations} iterations; ` +
     `${well} well conditioned: worst round-trip error ${worstRoundTrip.toExponential(2)} vol points (tolerance 1e-6), ` +
     `worst difference from native ${worstNative.toExponential(2)} (tolerance 1e-7); ` +
-    `outcome as native's everywhere except ${atBound} prices within 1e-12 of S + K e^{-rT} of the lower bound`);
+    `outcome as native's everywhere except ${atBound} prices within 1e-12 of S + K e^{-rT} of the lower bound; ` +
+    `largest price that did not converge ${largestFailing.toExponential(2)} of the spot`);
 }
 compareImpliedVol('grid', gridPoints);
 compareImpliedVol('random over the allowed ranges', wide);
