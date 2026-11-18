@@ -33,7 +33,7 @@ set +e
   cmake -S . -B build -DCMAKE_BUILD_TYPE=Release >/dev/null
   cmake --build build >/dev/null
   ctest --test-dir build --output-on-failure | sed -n '/Test #/p;/tests passed/p;/tests failed/,$p'
-  for t in test_pricing test_mc; do echo "# ./build/$t"; ./build/$t; done
+  for t in test_pricing test_mc test_normal; do echo "# ./build/$t"; ./build/$t; done
   echo "# web/build.sh"
   web/build.sh
   echo "# node web/test.mjs build/web_driver"

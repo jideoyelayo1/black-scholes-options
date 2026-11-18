@@ -21,6 +21,6 @@ public:
 
     // Cumulative distribution function (CDF)
     double cdf(double x) const {
-        return 0.5 * (1 + erf((x - mean) / (stddev * sqrt(2))));
+        return 0.5 * erfc(-(x - mean) / (stddev * sqrt(2)));  // erfc keeps the lower tail's relative accuracy
     }
 };

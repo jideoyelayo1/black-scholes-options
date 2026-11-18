@@ -14,7 +14,7 @@ The tests and the study in `bench/` check each method against an independent one
 - **MonteCarlo.hpp**: `MCPrice`, the Monte Carlo price with its standard error and 95% interval.
 - **NormalDistribution.hpp** / **NormalDistribution.cpp**: normal pdf and cdf.
 - **main.cpp**: a minimal program that builds an `Option`.
-- **tests/**: `test_pricing.cpp` (prices, Greeks, `Option`, solver), `test_mc.cpp` (Monte Carlo) and `grid.hpp` (the parameter grid).
+- **tests/**: `test_pricing.cpp` (prices, Greeks, `Option`, solver), `test_mc.cpp` (Monte Carlo), `test_normal.cpp` (the normal cdf and small prices against `normal_reference.py`'s 800-digit references) and `grid.hpp` (the parameter grid).
 - **bench/**: the study (`study.cpp`), the scripts that run it and draw the figure, and the committed outputs; `web_tests.sh`, which records the native and WebAssembly tests in `raw/web_tests.txt`.
 - **web/**: the WebAssembly build (below): `pricer_wasm.cpp` (the binding), `post.js` (argument checks), `build.sh`, `test.mjs`, `driver.cpp` (the native side of the tests) and `test_hooks.cpp` (test module only).
 - **.github/workflows/wasm.yml**: native and WebAssembly builds and tests on pull requests and on `main`; releases from `v*` tags.
@@ -162,7 +162,7 @@ The closed form and the solver are bounded work (the solver stops after 100 iter
 - **The implied vol** is that of a call (a put's is the call's at the same strike and expiry, by parity). Where vega is below 1e-7 x (S + K e^{-rT}) per vol point the price barely moves with vol, and the solver can return a vol that reproduces the price but is far from the one that made it; a price within rounding of the lower bound may be refused by one build and solved by the other.
 - **A study, not a trading tool**: European options under Black-Scholes with constant rate and volatility, no dividends, no early exercise, no rho. The checks show the module computes the model as the native library does, not that the model describes a market.
 
-Known limits: prices can come out negative by rounding (down to -2.31e-17 of S + K e^{-rT} in the samples), so a page should show them to a fixed number of decimals; the normal cdf is computed as (1 + erf(x / sqrt(2))) / 2, accurate to about 1e-16 absolutely but not relatively in the lower tail, so a price far below 1e-16 x (S + K e^{-rT}) is noise; the module is built for browsers' main thread and Node (`-sENVIRONMENT=web,node`), not for a Web Worker; and it was tested in Node only, on macOS (no browser, no Linux).
+Known limits: prices can come out negative by rounding (down to -2.31e-17 of S + K e^{-rT} in the samples), so a page should show them to a fixed number of decimals; the normal cdf is computed as erfc(-x / sqrt(2)) / 2, which keeps its relative accuracy in the lower tail (within 1.2e-13 of an 800-digit reference down to x = -37, and small prices within 1.5e-10 in the cases of `tests/test_normal.cpp`), but where a price is the difference of two nearly equal terms its error is still about 1e-16 x (S + K e^{-rT}) in absolute terms; the module is built for browsers' main thread and Node (`-sENVIRONMENT=web,node`), not for a Web Worker; and it was tested in Node only, on macOS (no browser, no Linux).
 
 ## License
 
