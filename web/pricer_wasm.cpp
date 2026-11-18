@@ -32,15 +32,16 @@ val refusal(const char* error, const std::string& message) {
     return o;
 }
 
-// Runs a bound call; a C++ exception becomes a returned refusal rather than leaving WebAssembly.
+// Runs a bound call; a C++ exception becomes a returned refusal rather than leaving WebAssembly. Its
+// message starts with the function's name, as post.js's do.
 template <class F>
-val guarded(F call) {
+val guarded(const char* fn, F call) {
     try {
         return call();
     } catch (const std::exception& e) {
-        return refusal("internal_error", e.what());
+        return refusal("internal_error", std::string(fn) + ": " + e.what());
     } catch (...) {
-        return refusal("internal_error", "unknown exception");
+        return refusal("internal_error", std::string(fn) + ": unknown exception");
     }
 }
 
@@ -60,7 +61,7 @@ std::uint64_t count(double x) { return x >= 0 && x < 18446744073709551616.0 ? st
 // so expiry is the time to expiry in years; vol and rate are percentages (20 means 20%).
 
 val rawPrice(bool call, double spot, double strike, double expiry, double vol, double rate) {
-    return guarded([&] {
+    return guarded("price", [&] {
         val o = val::object();
         o.set("ok", true);
         o.set("price", (call ? BSCall : BSPut)(spot, 0, strike, expiry, vol, rate));
@@ -76,7 +77,7 @@ val rawPrice(bool call, double spot, double strike, double expiry, double vol, d
 // std::invalid_argument only for a price outside (max(S - K e^{-rT}, 0), S); since that lower bound
 // is below S, the price is above the range exactly when it is not below S.
 val rawImpliedVol(double price, double spot, double strike, double expiry, double rate) {
-    return guarded([&] {
+    return guarded("impliedVol", [&] {
         int iterations = 0;
         try {
             const double vol = implied_vol(price, spot, strike, expiry, rate, &iterations);
@@ -88,18 +89,18 @@ val rawImpliedVol(double price, double spot, double strike, double expiry, doubl
         } catch (const std::invalid_argument&) {
             const double lower = std::fmax(spot - strike * std::exp(-rate / 100 * expiry), 0.0);
             if (!(price < spot))
-                return refusal("above_upper_bound", "a call price must be below the spot, " + number(spot) + "; got " + number(price));
-            return refusal("below_lower_bound", "a call price must be above max(S - K exp(-rT), 0) = " + number(lower) + "; got " + number(price));
+                return refusal("above_upper_bound", "impliedVol: a call price must be below the spot, " + number(spot) + "; got " + number(price));
+            return refusal("below_lower_bound", "impliedVol: a call price must be above max(S - K exp(-rT), 0) = " + number(lower) + "; got " + number(price));
         } catch (const std::domain_error&) {
-            return refusal("vol_above_bracket", "the implied volatility is above 1000%, the top of the solver's bracket");
+            return refusal("vol_above_bracket", "impliedVol: the implied volatility is above 1000%, the top of the solver's bracket");
         } catch (const std::runtime_error&) {
-            return refusal("not_converged", "the solver did not converge in 100 iterations");
+            return refusal("not_converged", "impliedVol: the solver did not converge in 100 iterations");
         }
     });
 }
 
 val rawMonteCarlo(bool call, double spot, double strike, double expiry, double vol, double rate, double paths, double seed) {
-    return guarded([&] {
+    return guarded("monteCarlo", [&] {
         const MCResult r = MCPrice(call, spot, 0, strike, expiry, vol, rate, count(paths), count(seed));
         val o = val::object();
         o.set("ok", true);

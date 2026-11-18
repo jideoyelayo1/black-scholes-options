@@ -92,7 +92,7 @@ bench/web_tests.sh                    # all of the above, recorded in bench/raw/
 
 ### API
 
-`pricer.mjs` exports a factory; the module it resolves to has three functions and `limits`. Units are the library's: `vol` and `rate` in percent (20 means 20%), `expiry` the time to expiry in years (the valuation time is 0), vega per vol point, theta per calendar day.
+`pricer.mjs` exports a factory; the module it resolves to has three functions and `limits`. Units are the library's: `vol` and `rate` in percent (20 means 20%), `expiry` the time to expiry in years (the valuation time is 0), vega per vol point, theta per calendar day. Theta is the change in value as one calendar day passes: minus the derivative with respect to the time to expiry, divided by 365, so usually negative.
 
 | Function | Arguments (all required, no others) | Result |
 |---|---|---|
@@ -115,7 +115,7 @@ pricer.monteCarlo({ type: 'call', spot: 100, strike: 100, expiry: 1, vol: 20, ra
 // {ok: true, price: 9.434143734972519, stdError: 0.014141785963166932, ciLow: 9.406426343807638,
 //  ciHigh: 9.4618611261374, closedForm: 9.413403383853016}
 pricer.impliedVol({ price: 2, spot: 120, strike: 100, expiry: 1, rate: 3 });
-// {ok: false, error: 'below_lower_bound', message: 'a call price must be above max(S - K exp(-rT), 0) = 22.95544665; got 2'}
+// {ok: false, error: 'below_lower_bound', message: 'impliedVol: a call price must be above max(S - K exp(-rT), 0) = 22.95544665; got 2'}
 ```
 
 ### Refusals
@@ -125,7 +125,7 @@ No function throws. A call that cannot be answered returns `{ok: false, error, m
 | `error` | When |
 |---|---|
 | `expected_one_object` | not exactly one argument, or it is not an object (null, an array, a number, a string) |
-| `unknown_argument` | a field that is not one of the function's (a misspelling such as `volatility`) |
+| `unknown_argument` | a field that is not one of the function's (a misspelling such as `volatility`), non-enumerable and symbol-keyed ones included |
 | `missing_argument` | a field is missing (inherited fields do not count) |
 | `unreadable_argument` | reading the object threw (a throwing getter or proxy, a revoked proxy) |
 | `unknown_type` | `type` is not exactly `'call'` or `'put'` |

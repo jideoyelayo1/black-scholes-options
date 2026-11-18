@@ -58,7 +58,8 @@
     if (typeof a !== 'object' || a === null || Array.isArray(a))
       return refuse('expected_one_object', `${fn}: expected an object of named arguments, got ${describe(a)}`);
     const values = [];
-    for (const k of Object.keys(a))
+    // every own key, non-enumerable and symbol keys included, must be one of names
+    for (const k of Reflect.ownKeys(a))
       if (!names.includes(k)) return refuse('unknown_argument', `${fn}: unknown argument ${describe(k)}; the arguments are ${names.join(', ')}`);
     for (const k of names) {
       if (!Object.prototype.hasOwnProperty.call(a, k)) return refuse('missing_argument', `${fn}: missing argument ${k}`);

@@ -349,9 +349,11 @@ const isRefusal = (r, error) =>
   const NOT_NUMBERS = ['100', '', true, null, undefined, 100n, Symbol('x'), new Number(100), [100], {}, () => 100];
   const NOT_FINITE = [NaN, Infinity, -Infinity];
   let refused = 0;
+  // every label starts with the function's name, and so must every refusal's message
   const expect = (label, got, error) => {
     refused++;
-    check(isRefusal(got, error), `${label}: ${String(JSON.stringify(got))}, expected a refusal ${error}`);
+    check(isRefusal(got, error) && got.message.startsWith(`${label.match(/^\w+/)[0]}: `),
+      `${label}: ${String(JSON.stringify(got))}, expected a refusal ${error} whose message starts with the function's name`);
   };
   for (const [fn, base] of Object.entries(BASE)) {
     const f = M[fn];
@@ -363,6 +365,8 @@ const isRefusal = (r, error) =>
       expect(`${fn}${label}`, call(), 'expected_one_object');
     expect(`${fn} with an extra argument`, f({ ...base, volatility: 20 }), 'unknown_argument');
     expect(`${fn} with a misspelt argument`, f({ ...without(base, 'spot'), Spot: 100 }), 'unknown_argument');
+    expect(`${fn} with a non-enumerable extra argument`, f(Object.defineProperty({ ...base }, 'volatility', { value: 20 })), 'unknown_argument');
+    expect(`${fn} with a symbol-keyed extra argument`, f({ ...base, [Symbol('volatility')]: 20 }), 'unknown_argument');
     for (const k of Object.keys(base)) {
       expect(`${fn} without ${k}`, f(without(base, k)), 'missing_argument');
       expect(`${fn} with ${k} inherited, not its own`, f(Object.assign(Object.create({ [k]: base[k] }), without(base, k))), 'missing_argument');
@@ -477,7 +481,10 @@ const isRefusal = (r, error) =>
   const t = refuseMany(T);
   // the library throws inside a bound call: MCPrice refuses fewer than 2 paths
   let internal = 0;
-  for (let i = 0; i < N; i++) internal += isRefusal(T.uncheckedMonteCarlo(true, 100, 100, 1, 20, 3, i % 3 === 0 ? 1 : -i, 1), 'internal_error');
+  for (let i = 0; i < N; i++) {
+    const r = T.uncheckedMonteCarlo(true, 100, 100, 1, 20, 3, i % 3 === 0 ? 1 : -i, 1);
+    internal += isRefusal(r, 'internal_error') && r.message.startsWith('monteCarlo: ');
+  }
   t.internal_error = internal;
   const spAfter = T.stackPointer(), heapAfter = T.heapSize();
   const m = refuseMany(M);
