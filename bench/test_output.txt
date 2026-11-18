@@ -13,4 +13,9 @@ call S=80 T=0.25 vol=30 r=5: MC 0.487228 +/- 0.002475 (95% CI 0.482377 to 0.4920
 put S=120 T=2 vol=50 r=0: MC 21.318587 +/- 0.025632 (95% CI 21.268350 to 21.368824), closed form 21.356239, z = -1.47
 call S=150 T=0.0191781 vol=20 r=3: MC 50.064197 +/- 0.004157 (95% CI 50.056049 to 50.072345), closed form 50.057518, z = 1.61
 standard error ratio, 4x paths: 0.5037
-11 checks, 0 failed
+call S=100 T=1 vol=20 r=3: 520463 of 10^6 paths in the money, 519938.8 expected (bound +/- 1999.4)
+put S=100 T=1 vol=20 r=3: 479537 of 10^6 paths in the money, 480061.2 expected (bound +/- 1999.4)
+call S=80 T=0.25 vol=30 r=5: 69692 of 10^6 paths in the money, 69531.4 expected (bound +/- 1018.4)
+put S=120 T=2 vol=50 r=0: 537513 of 10^6 paths in the money, 538125.3 expected (bound +/- 1995.2)
+call S=150 T=0.0191781 vol=20 r=3: 1000000 of 10^6 paths in the money, 1000000.0 expected (bound +/- 1.0)
+19 checks, 0 failed
