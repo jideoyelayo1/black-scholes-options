@@ -15,7 +15,7 @@ The tests and the study in `bench/` check each method against an independent one
 - **NormalDistribution.hpp** / **NormalDistribution.cpp**: normal pdf and cdf.
 - **main.cpp**: a minimal program that builds an `Option`.
 - **tests/**: `test_pricing.cpp` (prices, Greeks, `Option`, solver), `test_mc.cpp` (Monte Carlo), `test_normal.cpp` (the normal cdf and small prices against `normal_reference.py`'s 800-digit references) and `grid.hpp` (the parameter grid).
-- **bench/**: the study (`study.cpp`), the scripts that run it and draw the figure, and the committed outputs; `web_tests.sh`, which records the native and WebAssembly tests in `raw/web_tests.txt`; `check_web_tests.sh`, which checks that a failed run leaves that record as it was; and `mc_coverage.mjs`, which measured Monte Carlo's coverage for the `reliable` field (`raw/mc_coverage.txt`).
+- **bench/**: the study (`study.cpp`), the scripts that run it and draw the figure, and the committed outputs; `web_tests.sh`, which records the native and WebAssembly tests in `raw/web_tests.txt`; `check_web_tests.sh`, which checks that a failed run leaves that record as it was; and `mc_coverage.mjs`, which measures how often Monte Carlo's 95% interval holds (`raw/mc_coverage.txt`).
 - **web/**: the WebAssembly build (below): `pricer_wasm.cpp` (the binding), `post.js` (argument checks), `build.sh`, `test.mjs`, `driver.cpp` (the native side of the tests) and `test_hooks.cpp` (test module only).
 - **.github/workflows/wasm.yml**: native and WebAssembly builds and tests on pull requests and on `main`; releases from `v*` tags.
 
@@ -100,9 +100,9 @@ node bench/mc_coverage.mjs > bench/raw/mc_coverage.txt   # Monte Carlo's coverag
 |---|---|---|
 | `price` | `type` (`'call'` or `'put'`), `spot`, `strike`, `expiry`, `vol`, `rate` | `{ok: true, price, delta, gamma, vega, theta}` |
 | `impliedVol` | `price` (of a call), `spot`, `strike`, `expiry`, `rate` | `{ok: true, vol, iterations}` |
-| `monteCarlo` | `type`, `spot`, `strike`, `expiry`, `vol`, `rate`, `paths`, `seed` | `{ok: true, price, stdError, ciLow, ciHigh, closedForm, volRootT, reliable}` |
+| `monteCarlo` | `type`, `spot`, `strike`, `expiry`, `vol`, `rate`, `paths`, `seed` | `{ok: true, price, stdError, ciLow, ciHigh, closedForm, inTheMoneyPaths, volRootT}` |
 
-`price` is never negative (a price below zero by rounding is returned as 0). `ciLow` and `ciHigh` are the 95% interval, `price` -/+ 1.96 `stdError`; `closedForm` is `price()`'s price for the same inputs. `volRootT` is vol x sqrt(T), with vol as a fraction (0.2 for 20% over one year), and `reliable` is whether it is at or below `limits.reliableVolRootT`: beyond that the 95% interval was measured not to hold (below). `limits` is a frozen object, `{spot: {min, max}, ...}`, of the ranges below, with `reliableVolRootT`, a number.
+`price` is never negative (a price below zero by rounding is returned as 0). `ciLow` and `ciHigh` are the 95% interval, `price` -/+ 1.96 `stdError`; `closedForm` is `price()`'s price for the same inputs. `inTheMoneyPaths` is how many of the simulated paths finished in the money (a positive payoff), counted in the loop that prices them, and `volRootT` is vol x sqrt(T), with vol as a fraction (0.2 for 20% over one year): the two quantities against which the README tabulates how often the 95% interval holds (below). `limits` is a frozen object of `{min, max}` ranges only, one per argument, `{spot: {min, max}, ...}` (below), so that a page can iterate over it.
 
 ```js
 import createPricer from './pricer.mjs';   // pricer.wasm is fetched from next to it
@@ -115,7 +115,7 @@ pricer.impliedVol({ price: 9.413403383853016, spot: 100, strike: 100, expiry: 1,
 // {ok: true, vol: 19.999999999999993, iterations: 4}
 pricer.monteCarlo({ type: 'call', spot: 100, strike: 100, expiry: 1, vol: 20, rate: 3, paths: 1000000, seed: 42 });
 // {ok: true, price: 9.434143734972519, stdError: 0.014141785963166932, ciLow: 9.406426343807638,
-//  ciHigh: 9.4618611261374, closedForm: 9.413403383853016, volRootT: 0.2, reliable: true}
+//  ciHigh: 9.4618611261374, closedForm: 9.413403383853016, inTheMoneyPaths: 520463, volRootT: 0.2}
 pricer.impliedVol({ price: 2, spot: 120, strike: 100, expiry: 1, rate: 3 });
 // {ok: false, error: 'below_lower_bound', message: 'impliedVol: a call price must be above max(S - K exp(-rT), 0) = 22.95544665; got 2'}
 ```
@@ -162,19 +162,7 @@ One corner of these limits gives a poor standard error. `MCPrice` computes it in
 
 - **Agreement with the native build** (`web/test.mjs` against `web/driver.cpp`, which calls the library directly; macOS arm64, Apple clang, libc++). Not bit for bit in general: the two builds use different maths libraries and the native arm64 build fuses multiplies and adds. Over the grid of `tests/grid.hpp` and two seeded samples of 20,000 points each (one over all the limits, one near the money), every price and Greek agrees within 1e-12 of the size of the terms its formula combines (S + K e^{-rT} for the price); the largest difference was 2.15e-14 of that, and 6,407 to 19,225 of each 20,000 were bit-identical. Implied vols agree within 1e-7 vol points wherever the price determines the vol (largest 1.60e-9). Seeded Monte Carlo uses the same random numbers in both builds (libc++'s `std::normal_distribution` on `std::mt19937_64`): 7 of 20 runs of 10^6 paths were bit-identical and the largest relative difference was 1.31e-14.
 - **Repeatable in WebAssembly.** The same inputs and seed give the same bits on every call; one seeded Monte Carlo result is pinned bit for bit in `web/test.mjs`, which CI runs on another machine.
-- **Monte Carlo is an estimate**, with its own estimated standard error, and its 95% interval holds only while vol x sqrt(T) is small: beyond that a call's payoff is so skewed that the sample misses the rare paths that carry its price, and the standard error misses them too. Every result says so: `volRootT` is vol x sqrt(T) and `reliable` is whether it is at or below `limits.reliableVolRootT`, 1.25. `bench/mc_coverage.mjs` chose that threshold by measuring how often the interval contains the closed form for a call (S = K = 100, r 3%, T = 1) over seeds 1 to 1,000 (`bench/raw/mc_coverage.txt`; * where the coverage's own 95% interval excludes 0.95):
-
-| vol x sqrt(T) | 100 paths (below the minimum) | 1,000 | 10,000 | 100,000 | 1,000,000 | 2,000,000 |
-|---|---|---|---|---|---|---|
-| 0.25 | 0.943 | 0.950 | 0.944 | 0.937 | 0.944 | 0.948 |
-| 0.5 | 0.929 * | 0.950 | 0.948 | 0.937 | 0.949 | 0.945 |
-| 0.75 | 0.917 * | 0.952 | 0.944 | 0.939 | 0.947 | 0.947 |
-| 1 | 0.899 * | 0.950 | 0.945 | 0.944 | 0.950 | 0.952 |
-| 1.25 | 0.864 * | 0.942 | 0.943 | 0.946 | 0.946 | 0.947 |
-| 1.5 | 0.818 * | 0.923 * | 0.936 | 0.947 | 0.956 | 0.949 |
-| 2 | 0.711 * | 0.859 * | 0.907 * | 0.927 * | 0.954 | 0.957 |
-
-  1.25 is the largest value tried at which coverage was consistent with 95% at every allowed path count, as it was at every smaller value; at 1.5 it was 0.923 at 1,000 paths. That is also why the fewest paths allowed is 1,000 rather than the library's 2: at 100 paths coverage was already 0.929 at 0.5. Beyond the threshold the estimate is still returned, to be seen beside the closed form: at vol x sqrt(T) = 4, 10 of 20 intervals at 10^5 paths covered the price, and at 10 the estimate was 0 with a standard error of 0 against a price of 100 (`bench/raw/web_tests.txt`). Measured on a call; a put's payoff is bounded by the strike, so `reliable` is cautious for puts.
+- **Monte Carlo is an estimate**, with its own estimated standard error, and its 95% interval holds only when enough paths finish in the money and vol x sqrt(T) is small: otherwise the payoff is so skewed that the sample misses the rare paths that carry the price, and the standard error, estimated from the same sample, misses them too. Each result reports both quantities, `inTheMoneyPaths` and `volRootT`, so that a caller can judge; neither is a guarantee.
 - **The implied vol** is that of a call (a put's is the call's at the same strike and expiry, by parity). Where vega is below 1e-7 x (S + K e^{-rT}) per vol point the price barely moves with vol, and the solver can return a vol that reproduces the price but is far from the one that made it; within 1e-12 of S + K e^{-rT} of the lower bound (a price at the in-the-money bound, or a tiny one far out of the money) the two builds' rounding decides, and one may refuse the price, or stop at 100 iterations, where the other solves it.
 - **A study, not a trading tool**: European options under Black-Scholes with constant rate and volatility, no dividends, no early exercise, no rho. The checks show the module computes the model as the native library does, not that the model describes a market.
 

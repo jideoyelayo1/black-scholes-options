@@ -113,6 +113,7 @@ val rawMonteCarlo(bool call, double spot, double strike, double expiry, double v
         o.set("ciLow", r.ci_low);
         o.set("ciHigh", r.ci_high);
         o.set("closedForm", nonNegative((call ? BSCall : BSPut)(spot, 0, strike, expiry, vol, rate)));
+        o.set("inTheMoneyPaths", static_cast<double>(r.in_the_money));  // exact: paths are at most 2^53
         return o;
     });
 }

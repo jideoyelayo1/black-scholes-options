@@ -45,7 +45,7 @@ const T = await createTestModule(); // the test module
 // 0. the module's shape
 const LIMITS = {
   spot: { min: 0.01, max: 1e6 }, strike: { min: 0.01, max: 1e6 }, expiry: { min: 1e-4, max: 100 }, vol: { min: 0.01, max: 1000 },
-  rate: { min: -10, max: 100 }, paths: { min: 1000, max: 2e6 }, seed: { min: 0, max: 2 ** 53 - 1 }, reliableVolRootT: 1.25,
+  rate: { min: -10, max: 100 }, paths: { min: 1000, max: 2e6 }, seed: { min: 0, max: 2 ** 53 - 1 },
 };
 {
   for (const name of ['_price', '_impliedVol', '_monteCarlo', 'stackPointer', 'heapSize', 'uncheckedMonteCarlo'])
@@ -55,7 +55,8 @@ const LIMITS = {
   check(JSON.stringify(M.limits) === JSON.stringify(LIMITS), `limits ${JSON.stringify(M.limits)}`);
   check(Object.isFrozen(M.limits) && Object.values(M.limits).every(Object.isFrozen), 'limits are not frozen');
   const mc = M.monteCarlo({ type: 'call', spot: 100, strike: 100, expiry: 1, vol: 20, rate: 3, paths: 1000, seed: 1 });
-  check(Object.keys(mc).join() === 'ok,price,stdError,ciLow,ciHigh,closedForm,volRootT,reliable', `Monte Carlo fields ${Object.keys(mc)}`);
+  check(Object.keys(mc).join() === 'ok,price,stdError,ciLow,ciHigh,closedForm,inTheMoneyPaths,volRootT', `Monte Carlo fields ${Object.keys(mc)}`);
+  check(Object.values(M.limits).every((v) => Object.keys(v).join() === 'min,max'), 'limits holds something other than {min, max} ranges');
   const dist = `${ROOT}web/dist/`;
   const sums = readFileSync(`${dist}SHA256SUMS`, 'utf8').trim().split('\n').map((line) => line.split(/ +/));
   check(sums.map(([, f]) => f).join() === 'pricer.mjs,pricer.wasm,BUILD.txt', `SHA256SUMS lists ${sums.map(([, f]) => f)}`);
@@ -278,18 +279,42 @@ compareImpliedVol('random near the money', nearTheMoney);
   const runs = [];
   for (const seed of [1, 2, 42, 2 ** 53 - 1]) for (const c of CASES) runs.push({ ...c, paths: 1e6, seed });
   const rows = native(runs.map((r) => `mc ${r.type} ${r.spot} ${r.strike} ${r.expiry} ${r.vol} ${r.rate} ${r.paths} ${r.seed}`));
-  let identical = 0, worst = 0;
+  let identical = 0, worst = 0, sameCount = 0, worstCount = 0;
   runs.forEach((r, i) => {
-    const w = M.monteCarlo(r), n = rows[i].slice(1).map(fromBits);
+    const w = M.monteCarlo(r), n = rows[i].slice(1, 5).map(fromBits), count = Number(rows[i][5]);
+    // the paths in the money, against the native count: the same paths up to last-bit rounding of the
+    // terminal spot, so a path within rounding of the strike could fall either side
+    sameCount += w.inTheMoneyPaths === count;
+    worstCount = Math.max(worstCount, Math.abs(w.inTheMoneyPaths - count));
+    check(Math.abs(w.inTheMoneyPaths - count) <= 1, `paths in the money ${JSON.stringify(r)}: ${w.inTheMoneyPaths}, native ${count}`);
     identical += FIELDS.every((k, j) => Object.is(w[k], n[j]));
     const d = Math.max(...FIELDS.map((k, j) => Math.abs(w[k] - n[j]) / Math.abs(n[j])));
     worst = Math.max(worst, d);
     check(d <= 1e-12, `Monte Carlo against native ${JSON.stringify(r)}: ${JSON.stringify(w)}, native ${n.join(' ')}`);
     check(w.closedForm === M.price(without(without(r, 'paths'), 'seed')).price, `Monte Carlo closedForm ${JSON.stringify(r)}`);
-    check(w.volRootT === (r.vol / 100) * Math.sqrt(r.expiry) && w.reliable === (w.volRootT <= LIMITS.reliableVolRootT), `Monte Carlo volRootT and reliable ${JSON.stringify(w)}`);
+    check(w.volRootT === (r.vol / 100) * Math.sqrt(r.expiry), `Monte Carlo volRootT ${JSON.stringify(w)}`);
   });
   console.log(`Monte Carlo against native: ${runs.length} seeded runs of 10^6 paths, ${identical} bit-identical in all four outputs, ` +
-    `worst relative difference ${worst.toExponential(2)} (tolerance 1e-12)`);
+    `worst relative difference ${worst.toExponential(2)} (tolerance 1e-12); paths in the money identical in ${sameCount} of ${runs.length}, ` +
+    `largest difference ${worstCount} (tolerance 1)`);
+
+  // Paths in the money: a whole number from 0 to paths; all of them deep in the money, none deep out
+  // of it; otherwise within 4 standard deviations (and one path) of paths x the risk-neutral
+  // probability of finishing in the money, which is minus e^{rT} times the derivative of the price
+  // with respect to the strike, here a central difference of the module's own price
+  {
+    const all = M.monteCarlo({ type: 'call', spot: 1e6, strike: 0.01, expiry: 1, vol: 20, rate: 3, paths: 1e4, seed: 1 });
+    const none = M.monteCarlo({ type: 'call', spot: 0.01, strike: 1e6, expiry: 1e-4, vol: 0.01, rate: 3, paths: 1e4, seed: 1 });
+    check(all.inTheMoneyPaths === 1e4 && none.inTheMoneyPaths === 0 && none.price === 0, `paths in the money, all and none: ${all.inTheMoneyPaths}, ${none.inTheMoneyPaths}`);
+    const zs = [...CASES, { type: 'call', spot: 100, strike: 200, expiry: 1, vol: 20, rate: 3 }, { type: 'put', spot: 100, strike: 60, expiry: 1, vol: 20, rate: 3 }].map((c) => {
+      const h = 1e-4 * c.strike, slope = (M.price({ ...c, strike: c.strike + h }).price - M.price({ ...c, strike: c.strike - h }).price) / (2 * h);
+      const p = clamp((c.type === 'call' ? -slope : slope) * Math.exp((c.rate / 100) * c.expiry), 0, 1), paths = 1e6;
+      const got = M.monteCarlo({ ...c, paths, seed: 7 }).inTheMoneyPaths, bound = 4 * Math.sqrt(paths * p * (1 - p)) + 1;
+      check(Number.isInteger(got) && got >= 0 && got <= paths && Math.abs(got - paths * p) <= bound, `paths in the money ${JSON.stringify(c)}: ${got}, expected ${paths * p} +/- ${bound}`);
+      return `${c.type} K=${c.strike} S=${c.spot}: ${got} (expected ${(paths * p).toFixed(0)})`;
+    });
+    console.log(`paths in the money, 10^6 paths, seed 7: ${zs.join('; ')}; deep in the money ${all.inTheMoneyPaths} of 10,000, deep out ${none.inTheMoneyPaths}`);
+  }
 
   // Pinned: the WebAssembly module's own result, bit for bit, so that a change of behaviour shows and
   // so that other machines (CI) can be seen to give the same bits
@@ -327,10 +352,9 @@ compareImpliedVol('random near the money', nearTheMoney);
 
   // As vol x sqrt(T) grows, the payoff's distribution gets so skewed that the sample misses the rare
   // paths that carry the price, and the standard error, estimated from the same sample, misses them
-  // too (bench/mc_coverage.mjs measures it over 1,000 seeds). Call, S = K = 100, r = 3%: coverage of
-  // the 95% interval over seeds 1-20 at 10^5 paths, z at 10^6 paths, seed 42, and the result's
-  // reliable field, which must be true exactly at or below limits.reliableVolRootT. Coverage and z are
-  // asserted only where reliable is true.
+  // too (bench/mc_coverage.mjs measures how coverage depends on vol x sqrt(T) and the paths in the
+  // money). Call, S = K = 100, r = 3%: coverage of the 95% interval over seeds 1-20 at 10^5 paths and
+  // z at 10^6 paths, seed 42; asserted only up to vol x sqrt(T) = 2, as a check that nothing broke.
   const rows2 = [[20, 1], [100, 1], [100, 4], [200, 4], [300, 5], [1000, 1]].map(([vol, expiry]) => {
     const c = { type: 'call', spot: 100, strike: 100, expiry, vol, rate: 3 };
     let covered = 0;
@@ -340,10 +364,10 @@ compareImpliedVol('random near the money', nearTheMoney);
     }
     const r = M.monteCarlo({ ...c, paths: 1e6, seed: 42 }), width = (vol / 100) * Math.sqrt(expiry);
     const score = (r.price - r.closedForm) / r.stdError;
-    check(r.volRootT === width && r.reliable === (width <= LIMITS.reliableVolRootT), `Monte Carlo at vol x sqrt(T) = ${width}: ${JSON.stringify(r)}`);
-    if (r.reliable) check(Math.abs(score) <= 4 && covered >= 15, `Monte Carlo at vol x sqrt(T) = ${width}: z = ${score}, covered ${covered} of 20`);
+    check(r.volRootT === width, `Monte Carlo at vol x sqrt(T) = ${width}: ${JSON.stringify(r)}`);
+    if (width <= 2) check(Math.abs(score) <= 4 && covered >= 15, `Monte Carlo at vol x sqrt(T) = ${width}: z = ${score}, covered ${covered} of 20`);
     return `${width.toFixed(1)}: ${covered}/20 covered, estimate ${r.price.toPrecision(5)} +/- ${r.stdError.toPrecision(3)} against ${r.closedForm.toPrecision(5)}, ` +
-      `z = ${score.toFixed(2)}, reliable ${r.reliable}`;
+      `z = ${score.toFixed(2)}, ${r.inTheMoneyPaths} of 10^6 paths in the money`;
   });
   console.log(`Monte Carlo as vol x sqrt(T) grows: ${rows2.join('; ')}`);
 
@@ -463,7 +487,7 @@ const isRefusal = (r, error) =>
       const iv = M.impliedVol({ price: p.price, spot, strike, expiry, rate });
       check(iv.ok ? Number.isFinite(iv.vol) : Object.keys(NAMED).includes(iv.error), `corner ${at}: implied vol ${JSON.stringify(iv)}`);
       const mc = M.monteCarlo({ ...c, paths: 1000, seed: 1 });
-      check(mc.ok && ['price', 'stdError', 'ciLow', 'ciHigh', 'closedForm', 'volRootT'].every((k) => Number.isFinite(mc[k])) && typeof mc.reliable === 'boolean',
+      check(mc.ok && ['price', 'stdError', 'ciLow', 'ciHigh', 'closedForm', 'inTheMoneyPaths', 'volRootT'].every((k) => Number.isFinite(mc[k])),
         `corner ${at}: Monte Carlo ${JSON.stringify(mc)}`);
       corners++;
     }

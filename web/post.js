@@ -20,9 +20,8 @@
   // negative spots, strikes, vols and expiries are refused. The top vol is the implied-vol solver's
   // bracket. Rates are floored at -10% so that e^{-rT}, which multiplies the strike, stays below
   // e^{10} at the longest expiry: the price's rounding error is about 1e-16 of S + K e^{-rT}.
-  // The fewest paths is 1,000, not the library's 2: below it the 95% interval does not hold even for
-  // a modest vol x sqrt(T) (bench/raw/mc_coverage.txt: 0.929 at 100 paths and vol x sqrt(T) = 0.5),
-  // so the reliable field below could not mean anything there.
+  // The fewest paths is 1,000, not the library's 2: a floor, below which the 95% interval was far
+  // from 95% even at the money (bench/raw/mc_coverage.txt); it is not where the interval holds.
   // Paths bound the work: Monte Carlo's time is proportional to them. web/test.mjs times the largest
   // call for the usual option and for the slowest case found (terminal spots so small that the
   // exponential returns subnormal numbers, slowly); the README gives the times and the reasoning.
@@ -37,14 +36,6 @@
     seed: [0, 2 ** 53 - 1],
   };
   const WHOLE = new Set(['paths', 'seed']);
-  // Monte Carlo's 95% interval can be trusted only while vol x sqrt(T) is small: beyond that a call's
-  // payoff is so skewed that the sample misses the rare paths that carry its price, and the standard
-  // error, estimated from the same sample, misses them too. bench/mc_coverage.mjs measured the
-  // interval's coverage over 1,000 seeds at 100 to 2,000,000 paths; this is the largest vol x sqrt(T)
-  // it tried at which coverage was consistent with 95% at every allowed path count (1,000 and up),
-  // and at every smaller one (bench/raw/mc_coverage.txt): at 1.5 it was 0.923 at 1,000 paths. Measured on a call: a put's
-  // payoff is bounded by the strike, so the field is cautious for puts.
-  const RELIABLE_VOL_ROOT_T = 1.25;
 
   const refuse = (error, message) => ({ ok: false, error, message });
   // A caller's value, for a message: only its type is looked at (typeof cannot throw), and at most 20
@@ -120,19 +111,16 @@
     return run('impliedVol', args, IMPLIED_VOL, (v) => raw.impliedVol(v[0], v[1], v[2], v[3], v[4]));
   };
   // {type, spot, strike, expiry, vol, rate, paths, seed}
-  //   -> {ok: true, price, stdError, ciLow, ciHigh, closedForm, volRootT, reliable}
+  //   -> {ok: true, price, stdError, ciLow, ciHigh, closedForm, inTheMoneyPaths, volRootT}
+  // inTheMoneyPaths (from MCPrice) and volRootT, vol x sqrt(T), are the two observable quantities
+  // the README's coverage tables relate to how often the 95% interval holds; neither is a promise.
   Module['monteCarlo'] = function monteCarlo(...args) {
     return run('monteCarlo', args, MONTE_CARLO, (v) => {
       const r = raw.monteCarlo(v[0] === 'call', v[1], v[2], v[3], v[4], v[5], v[6], v[7]);
-      if (r.ok) {
-        r.volRootT = (v[4] / 100) * Math.sqrt(v[3]);
-        r.reliable = r.volRootT <= RELIABLE_VOL_ROOT_T;
-      }
+      if (r.ok) r.volRootT = (v[4] / 100) * Math.sqrt(v[3]);
       return r;
     });
   };
-  Module['limits'] = Object.freeze({
-    ...Object.fromEntries(Object.entries(LIMITS).map(([k, [min, max]]) => [k, Object.freeze({ min, max })])),
-    reliableVolRootT: RELIABLE_VOL_ROOT_T,
-  });
+  // only {min, max} ranges, so that a page can iterate over them
+  Module['limits'] = Object.freeze(Object.fromEntries(Object.entries(LIMITS).map(([k, [min, max]]) => [k, Object.freeze({ min, max })])));
 }
