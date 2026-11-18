@@ -1,10 +1,10 @@
-# commit f5a6704, Apple M1 Pro, Darwin 27.0.0, Apple clang version 21.0.0 (clang-2100.3.34.2), cmake 4.4.0, node v26.5.0
+# commit 6f27fa8, Apple M1 Pro, Darwin 27.0.0, Apple clang version 21.0.0 (clang-2100.3.34.2), cmake 4.4.0, node v26.5.0
 # bench/web_tests.sh; paths are shown relative to the repository
-# load average before: { 169.44 245.26 239.68 }
-# cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build && ctest --test-dir build --output-on-failure
-1/3 Test #1: pricing ..........................   Passed    0.01 sec
-2/3 Test #2: monte_carlo ......................   Passed    0.28 sec
-3/3 Test #3: normal_cdf .......................   Passed    0.01 sec
+# load average before: { 28.36 29.82 38.87 }
+# cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build --clean-first && ctest --test-dir build --output-on-failure
+1/3 Test #1: pricing ..........................   Passed    0.00 sec
+2/3 Test #2: monte_carlo ......................   Passed    0.34 sec
+3/3 Test #3: normal_cdf .......................   Passed    0.00 sec
 100% tests passed out of 3
 # ./build/test_pricing
 grid: 630 cases (x2 for call and put)
@@ -23,35 +23,41 @@ call S=80 T=0.25 vol=30 r=5: MC 0.487228 +/- 0.002475 (95% CI 0.482377 to 0.4920
 put S=120 T=2 vol=50 r=0: MC 21.318587 +/- 0.025632 (95% CI 21.268350 to 21.368824), closed form 21.356239, z = -1.47
 call S=150 T=0.0191781 vol=20 r=3: MC 50.064197 +/- 0.004157 (95% CI 50.056049 to 50.072345), closed form 50.057518, z = 1.61
 standard error ratio, 4x paths: 0.5037
-11 checks, 0 failed
+call S=100 T=1 vol=20 r=3: 520463 of 10^6 paths in the money, 519938.8 expected (bound +/- 1999.4)
+put S=100 T=1 vol=20 r=3: 479537 of 10^6 paths in the money, 480061.2 expected (bound +/- 1999.4)
+call S=80 T=0.25 vol=30 r=5: 69692 of 10^6 paths in the money, 69531.4 expected (bound +/- 1018.4)
+put S=120 T=2 vol=50 r=0: 537513 of 10^6 paths in the money, 538125.3 expected (bound +/- 1995.2)
+call S=150 T=0.0191781 vol=20 r=3: 1000000 of 10^6 paths in the money, 1000000.0 expected (bound +/- 1.0)
+19 checks, 0 failed
 # ./build/test_normal
 worst relative error of the cdf over 13 points: 1.174e-13 (tolerance 1e-12); of 6 small prices: 1.510e-10 (tolerance 1e-9)
 19 checks, 0 failed
 # web/build.sh
 emcc (Emscripten gcc/clang-like replacement + linker emulating GNU ld) 6.0.13 (e13ee988ce3d87a738dd8f3661d02223308c412a)
 emcc (Emscripten gcc/clang-like replacement + linker emulating GNU ld) 6.0.13 (e13ee988ce3d87a738dd8f3661d02223308c412a)
-source commit: f5a670414921824cc3e288bdc476e08eaabc9865
+source commit: 6f27fa897c5a92c5c8f198a41cd0e95f512781ae
 command: em++ -std=c++17 -O2 -fexceptions -I . -lembind -sMODULARIZE -sEXPORT_ES6 -sENVIRONMENT=web,node -sALLOW_MEMORY_GROWTH -sFILESYSTEM=0 --post-js web/post.js web/pricer_wasm.cpp -o web/dist/pricer.mjs
-pricer.mjs: 36897 bytes (gzip -9: 10358 bytes)
-pricer.wasm: 50526 bytes (gzip -9: 24801 bytes)
+pricer.mjs: 36780 bytes (gzip -9: 10309 bytes)
+pricer.wasm: 50646 bytes (gzip -9: 24868 bytes)
 # node web/test.mjs build/web_driver
 known answers: Hull's values; over the 630-point grid, put-call parity (worst residual 2.842e-14), delta parity, equal call and put gamma and vega, no-arbitrage bounds; deep in and out of the money, high vol, short expiry
-native agreement, grid (1260 cases): price 494 bit-identical, worst 1.89e-16; delta 823 bit-identical, worst 1.11e-16; gamma 1224 bit-identical, worst 1.02e-16; vega 1220 bit-identical, worst 1.05e-16; theta 1002 bit-identical, worst 2.09e-16 (tolerance 1e-12 of scale); 1 native prices below zero (the most negative -5.73e-18 of S + K e^{-rT}), none from the module
-native agreement, random over the allowed ranges (20000 cases): price 17041 bit-identical, worst 7.65e-15; delta 17127 bit-identical, worst 2.15e-14; gamma 19224 bit-identical, worst 1.43e-14; vega 19225 bit-identical, worst 1.44e-14; theta 17032 bit-identical, worst 2.02e-14 (tolerance 1e-12 of scale); 6 native prices below zero (the most negative -3.19e-17 of S + K e^{-rT}), none from the module
-native agreement, random near the money (20000 cases): price 6407 bit-identical, worst 2.34e-16; delta 11354 bit-identical, worst 2.22e-16; gamma 19012 bit-identical, worst 1.85e-16; vega 18993 bit-identical, worst 1.50e-16; theta 12501 bit-identical, worst 2.14e-16 (tolerance 1e-12 of scale); 46 native prices below zero (the most negative -2.69e-17 of S + K e^{-rT}), none from the module
-implied vol, grid (630 call prices): outcomes {"below_lower_bound":123,"not_converged":26,"ok":481}, at most 96 iterations; 403 well conditioned: worst round-trip error 3.29e-10 vol points (tolerance 1e-6), worst difference from native 2.52e-10 (tolerance 1e-7); outcome as native's everywhere except 37 prices within 1e-12 of S + K e^{-rT} of the lower bound
-implied vol, random over the allowed ranges (20000 call prices): outcomes {"below_lower_bound":15317,"not_converged":700,"ok":3095,"above_upper_bound":888}, at most 100 iterations; 1545 well conditioned: worst round-trip error 1.26e-9 vol points (tolerance 1e-6), worst difference from native 1.60e-9 (tolerance 1e-7); outcome as native's everywhere except 892 prices within 1e-12 of S + K e^{-rT} of the lower bound
-implied vol, random near the money (20000 call prices): outcomes {"ok":15977,"below_lower_bound":2968,"not_converged":1055}, at most 100 iterations; 12635 well conditioned: worst round-trip error 1.09e-9 vol points (tolerance 1e-6), worst difference from native 8.50e-10 (tolerance 1e-7); outcome as native's everywhere except 1534 prices within 1e-12 of S + K e^{-rT} of the lower bound
-Monte Carlo against native: 20 seeded runs of 10^6 paths, 7 bit-identical in all four outputs, worst relative difference 1.31e-14 (tolerance 1e-12)
+native agreement, grid (1260 cases): price 514 bit-identical, worst 1.57e-16; delta 918 bit-identical, worst 1.11e-16; gamma 1224 bit-identical, worst 1.02e-16; vega 1220 bit-identical, worst 1.05e-16; theta 1104 bit-identical, worst 2.09e-16 (tolerance 1e-12 of scale); 0 native prices below zero (the most negative 0.00e+0 of S + K e^{-rT}), none from the module
+native agreement, random over the allowed ranges (20000 cases): price 17527 bit-identical, worst 7.65e-15; delta 18061 bit-identical, worst 2.15e-14; gamma 19224 bit-identical, worst 1.43e-14; vega 19225 bit-identical, worst 1.44e-14; theta 18557 bit-identical, worst 2.02e-14 (tolerance 1e-12 of scale); 4 native prices below zero (the most negative -4.94e-324 of S + K e^{-rT}), none from the module
+native agreement, random near the money (20000 cases): price 6735 bit-identical, worst 1.78e-16; delta 13491 bit-identical, worst 2.22e-16; gamma 19012 bit-identical, worst 1.85e-16; vega 18993 bit-identical, worst 1.50e-16; theta 16407 bit-identical, worst 2.14e-16 (tolerance 1e-12 of scale); 0 native prices below zero (the most negative 0.00e+0 of S + K e^{-rT}), none from the module
+implied vol, grid (630 call prices): outcomes {"below_lower_bound":123,"not_converged":26,"ok":481}, at most 96 iterations; 403 well conditioned: worst round-trip error 3.29e-10 vol points (tolerance 1e-6), worst difference from native 2.74e-10 (tolerance 1e-7); outcome as native's everywhere except 11 prices within 1e-12 of S + K e^{-rT} of the lower bound; largest price that did not converge 2.68e-46 of the spot
+implied vol, random over the allowed ranges (20000 call prices): outcomes {"below_lower_bound":15317,"not_converged":700,"ok":3095,"above_upper_bound":888}, at most 100 iterations; 1545 well conditioned: worst round-trip error 1.26e-9 vol points (tolerance 1e-6), worst difference from native 1.60e-9 (tolerance 1e-7); outcome as native's everywhere except 191 prices within 1e-12 of S + K e^{-rT} of the lower bound; largest price that did not converge 3.81e-33 of the spot
+implied vol, random near the money (20000 call prices): outcomes {"ok":15977,"below_lower_bound":2968,"not_converged":1055}, at most 100 iterations; 12635 well conditioned: worst round-trip error 1.09e-9 vol points (tolerance 1e-6), worst difference from native 9.62e-10 (tolerance 1e-7); outcome as native's everywhere except 482 prices within 1e-12 of S + K e^{-rT} of the lower bound; largest price that did not converge 1.19e-44 of the spot
+Monte Carlo against native: 20 seeded runs of 10^6 paths, 7 bit-identical in all four outputs, worst relative difference 1.31e-14 (tolerance 1e-12); paths in the money identical in 20 of 20, largest difference 0 (tolerance 1)
+paths in the money, 10^6 paths, seed 7: call K=100 S=100: 519206 (expected 519939); put K=100 S=100: 480794 (expected 480061); call K=100 S=80: 69353 (expected 69531); put K=100 S=120: 538643 (expected 538125); call K=100 S=150: 1000000 (expected 1000000); call K=200 S=100: 342 (expected 318); put K=60 S=100: 4509 (expected 4605); deep in the money 10000 of 10,000, deep out 0
 Monte Carlo against the closed form, 10^6 paths, seed 42: z = 1.47, -1.38, 1.58, -1.47, 1.61 (bound 4); standard error ratio for 4x paths 0.5037 (0.5 +/- 0.05); standard error at 10^3..10^6 paths, seed 1: 0.477, 0.144, 0.0449, 0.0141; pinned result for seed 42 (9.434143734972519, standard error 0.014141785963166932) bit for bit
-Monte Carlo as vol x sqrt(T) grows: 0.2: 19/20 covered, estimate 9.4341 +/- 0.0141 against 9.4134, z = 1.47, reliable true; 1.0: 18/20 covered, estimate 39.433 +/- 0.116 against 39.220, z = 1.83, reliable true; 2.0: 18/20 covered, estimate 71.020 +/- 0.628 against 70.145, z = 1.39, reliable false; 4.0: 10/20 covered, estimate 71.435 +/- 4.77 against 95.716, z = -5.09, reliable false; 6.7: 2/20 covered, estimate 1.4579 +/- 0.275 against 99.926, z = -357.63, reliable false; 10.0: 0/20 covered, estimate 0.0000 +/- 0.00 against 100.00, z = -Infinity, reliable false
+Monte Carlo as vol x sqrt(T) grows: 0.2: 19/20 covered, estimate 9.4341 +/- 0.0141 against 9.4134, z = 1.47, 520463 of 10^6 paths in the money; 1.0: 18/20 covered, estimate 39.433 +/- 0.116 against 39.220, z = 1.83, 319722 of 10^6 paths in the money; 2.0: 18/20 covered, estimate 71.020 +/- 0.628 against 70.145, z = 1.39, 173933 of 10^6 paths in the money; 4.0: 10/20 covered, estimate 71.435 +/- 4.77 against 95.716, z = -5.09, 24554 of 10^6 paths in the money; 6.7: 2/20 covered, estimate 1.4579 +/- 0.275 against 99.926, z = -357.63, 467 of 10^6 paths in the money; 10.0: 0/20 covered, estimate 0.0000 +/- 0.00 against 100.00, z = -Infinity, 0 of 10^6 paths in the money
 Monte Carlo standard error over the exact one, 2,000,000 paths, seeds 1 and 2: S = 1000000, K = 0.01, T = 1, vol 20%: 1.0000 and 1.0002; S = 100, K = 0.01, T = 1, vol 20%: 1.0000 and 1.0002; S = 1000000, K = 0.01, T = 0.0001, vol 0.01%: 1.0188 and 0.9879; S = 100, K = 0.01, T = 0.0001, vol 0.01%: 0.9139 and 0.9963
 refusals: 513 refused calls, each with its named reason; each limit accepted with finite results; 64 corners of the allowed ranges (call and put): finite prices, Greeks and Monte Carlo results, implied vol solved or refused by name
-refusals in a loop: 100,000 each of 12 kinds on both modules, and 100,000 forced internal errors on the test module ({"ok":false,"error":"internal_error","message":"monteCarlo: Need at least 2 paths for a standard error"}); stack pointer 78384 before, 78384 after; memory 16908288 bytes before, 16908288 after; price, implied vol and Monte Carlo results unchanged on both
-timing: Monte Carlo at the limit of 2,000,000 paths, first call in a fresh process, then two more: S = K = 100, T = 1, vol 20%, r 3%: 0.066, 0.077, 0.127 s; S = K = 0.01, T = 100, vol 375%, r -10%: 0.220, 0.289, 0.329 s (bound 0.5 s)
-PASS: 319005 checks
-# load average after: { 148.83 229.40 234.13 }
+refusals in a loop: 100,000 each of 12 kinds on both modules, and 100,000 forced internal errors on the test module ({"ok":false,"error":"internal_error","message":"monteCarlo: Need at least 2 paths for a standard error"}); stack pointer 78400 before, 78400 after; memory 16908288 bytes before, 16908288 after; price, implied vol and Monte Carlo results unchanged on both
+timing: Monte Carlo at the limit of 2,000,000 paths, first call in a fresh process, then two more: S = K = 100, T = 1, vol 20%, r 3%: 0.063, 0.051, 0.052 s; S = K = 0.01, T = 100, vol 375%, r -10%: 0.113, 0.100, 0.100 s (bound 0.5 s)
+PASS: 320765 checks
+# load average after: { 22.59 28.41 38.16 }
 # web/dist/SHA256SUMS
-af09761293ca8ed5e07f3e2ba802e132058828b0b44929fe7e47f0cd82d2dc29  pricer.mjs
-7994261cc9d6410f223724b70a752a052a4aaaa42560c4cc58aeef55235962ea  pricer.wasm
-a0e42495338c8e59d364405be4712f5ee918a7e3ea425e1a29a333b068f07925  BUILD.txt
+b7311daf92654d3b968a977be53b8bd5c446a15b4a15e4485fb97c4826c9515b  pricer.mjs
+b08ae79bda3aeccbd0d926295e830388cd0c0b991c666519dd503d38b342e63e  pricer.wasm
+7dd2106bf5362ae14c9cee7001a9279ba294e2009407bb5243f3b237ddd344d3  BUILD.txt
