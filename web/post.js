@@ -21,7 +21,7 @@
   // bracket. Rates are floored at -10% so that e^{-rT}, which multiplies the strike, stays below
   // e^{10} at the longest expiry: the price's rounding error is about 1e-16 of S + K e^{-rT}.
   // The fewest paths is 1,000, not the library's 2: a floor, below which the 95% interval covered less
-  // even at the money (89% to 94% at 100 paths, bench/raw/mc_coverage.txt); not where it holds.
+  // even at the money (89% to 94% at 100 paths, bench/raw/mc_coverage.txt); not where it covers 95%.
   // Paths bound the work: Monte Carlo's time is proportional to them. web/test.mjs times the largest
   // call for the usual option and for the slowest case found (terminal spots so small that the
   // exponential returns subnormal numbers, slowly); the README gives the times and the reasoning.
@@ -112,8 +112,8 @@
   };
   // {type, spot, strike, expiry, vol, rate, paths, seed}
   //   -> {ok: true, price, stdError, ciLow, ciHigh, closedForm, inTheMoneyPaths, volRootT}
-  // inTheMoneyPaths (from MCPrice) and volRootT, vol x sqrt(T), are the two observable quantities
-  // the README's coverage tables relate to how often the 95% interval holds; neither is a promise.
+  // inTheMoneyPaths (from MCPrice) and volRootT, vol x sqrt(T), are the two observable quantities the
+  // README's tables relate to how often the 95% interval covers the closed form; neither is a promise.
   Module['monteCarlo'] = function monteCarlo(...args) {
     return run('monteCarlo', args, MONTE_CARLO, (v) => {
       const r = raw.monteCarlo(v[0] === 'call', v[1], v[2], v[3], v[4], v[5], v[6], v[7]);
