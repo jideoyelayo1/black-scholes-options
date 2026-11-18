@@ -163,15 +163,20 @@ One corner of these limits gives a poor standard error. `MCPrice` computes it in
 - **Agreement with the native build** (`web/test.mjs` against `web/driver.cpp`, which calls the library directly; macOS arm64, Apple clang, libc++). Not bit for bit in general: the two builds use different maths libraries and the native arm64 build fuses multiplies and adds. Over the grid of `tests/grid.hpp` and two seeded samples of 20,000 points each (one over all the limits, one near the money), every price and Greek agrees within 1e-12 of the size of the terms its formula combines (S + K e^{-rT} for the price); the largest difference was 2.15e-14 of that, and 6,735 to 19,225 of each 20,000 were bit-identical. Implied vols agree within 1e-7 vol points wherever the price determines the vol (largest 1.60e-9). Seeded Monte Carlo uses the same random numbers in both builds (libc++'s `std::normal_distribution` on `std::mt19937_64`): 7 of 20 runs of 10^6 paths were bit-identical and the largest relative difference was 1.31e-14.
 - **Repeatable in WebAssembly.** The same inputs and seed give the same bits on every call; one seeded Monte Carlo result is pinned bit for bit in `web/test.mjs`, which CI runs on another machine.
 - **Monte Carlo is an estimate**, with its own estimated standard error, and its 95% interval is not a guarantee. When few paths finish in the money, or vol x sqrt(T) is large, the payoff is so skewed that the sample misses the rare paths that carry the price, and the standard error, estimated from the same sample, misses them too. Each result reports both quantities, `inTheMoneyPaths` and `volRootT`, so that a caller can judge. `bench/mc_coverage.mjs` measured how often the interval covers the closed form, through the module, for calls and puts with S = 100, T = 1, r 3%, strikes 50 to 200, vol x sqrt(T) 0.2 to 1.5 and 1,000, 10,000 and 100,000 paths, with seeds 1 to 5,000, 2,000 and 2,000 at those path counts and 10,000 for the at-the-money table (`bench/raw/mc_coverage.txt`, where every coverage has its 95% interval and run count). What it found, as guidance:
-  - **Paths in the money matter most.** With none, the estimate is 0 with a standard error of 0 and the interval never covers; with fewer than about 30, coverage was far below 95%: no option whose runs typically had fewer than 30 in the money covered more than 88.4% at 1,000 paths, 75.3% at 10,000 or 91.8% at 100,000. The cases a page is likely to meet:
+  - **Paths in the money matter most.** With none, the estimate is 0 with a standard error of 0 and the interval never covers. Every option whose runs typically had fewer than 100 paths in the money, at each path count measured:
 
-| Option (S = 100, T = 1, r 3%) | 1,000 paths | 10,000 paths | 100,000 paths |
-|---|---|---|---|
-| call, strike 200, vol x sqrt(T) 0.2 | 0.258 (0 in the money) | 0.753 (3 in the money) | 0.921 (32 in the money) |
-| put, strike 60, vol x sqrt(T) 0.2 | 0.819 (4 in the money) | 0.928 (46 in the money) | 0.947 (461 in the money) |
-| put, strike 50, vol x sqrt(T) 0.2 | 0.185 (0 in the money) | 0.700 (2 in the money) | 0.918 (22 in the money) |
-| call, strike 160, vol x sqrt(T) 0.2 | 0.884 (11 in the money) | 0.944 (107 in the money) | 0.934 (1073 in the money) |
-| call, strike 200, vol x sqrt(T) 1.5 | 0.910 (117 in the money) | 0.937 (1166 in the money) | 0.942 (11658 in the money) |
+| Option (S = 100, T = 1, r 3%) | Paths | Paths in the money (median) | Coverage (95% interval, runs) |
+|---|---:|---:|---|
+| call, strike 200, vol x sqrt(T) 0.2 | 1,000 | 0 | 25.8% (24.6% to 27.0%, 5,000) |
+| put, strike 50, vol x sqrt(T) 0.2 | 1,000 | 0 | 18.5% (17.4% to 19.6%, 5,000) |
+| put, strike 50, vol x sqrt(T) 0.2 | 10,000 | 2 | 70.0% (68.0% to 72.0%, 2,000) |
+| call, strike 200, vol x sqrt(T) 0.2 | 10,000 | 3 | 75.3% (73.4% to 77.2%, 2,000) |
+| put, strike 60, vol x sqrt(T) 0.2 | 1,000 | 4 | 81.9% (80.8% to 82.9%, 5,000) |
+| call, strike 160, vol x sqrt(T) 0.2 | 1,000 | 11 | 88.4% (87.5% to 89.3%, 5,000) |
+| put, strike 50, vol x sqrt(T) 0.2 | 100,000 | 22 | 91.8% (90.5% to 92.9%, 2,000) |
+| call, strike 200, vol x sqrt(T) 0.2 | 100,000 | 32 | 92.1% (90.8% to 93.2%, 2,000) |
+| put, strike 60, vol x sqrt(T) 0.2 | 10,000 | 46 | 92.8% (91.6% to 93.9%, 2,000) |
+| call, strike 200, vol x sqrt(T) 0.5 | 1,000 | 58 | 93.6% (92.9% to 94.3%, 5,000) |
 
   - **With at least 100 in the money, coverage was about 94 to 95%, not 95%**, at every path count tested (the lowest pooled figure, 93.4%, at vol x sqrt(T) 1.5 and 1,000 paths). Pooled over all the options' runs with at least 100 paths in the money, by vol x sqrt(T):
 
