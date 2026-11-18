@@ -2,10 +2,10 @@ grid: 630 cases (x2 for call and put)
 worst put-call parity residual: 2.842e-14 (tolerance 1e-08)
 worst delta parity residual: 0.000e+00 (tolerance 1e-12)
 worst delta finite-difference error as a fraction of its tolerance: 1.368e-02
-worst gamma finite-difference error as a fraction of its tolerance: 5.747e-02
-worst vega finite-difference error as a fraction of its tolerance: 5.972e-02
+worst gamma finite-difference error as a fraction of its tolerance: 6.340e-02
+worst vega finite-difference error as a fraction of its tolerance: 5.975e-02
 worst theta finite-difference error as a fraction of its tolerance: 9.008e-01
-implied vol round trip: 404 well-conditioned cases, worst |error| 2.911e-10 vol points (tolerance 1e-6)
+implied vol round trip: 404 well-conditioned cases, worst |error| 2.403e-10 vol points (tolerance 1e-6)
 8006 checks, 0 failed
 call S=100 T=1 vol=20 r=3: MC 9.434144 +/- 0.014142 (95% CI 9.406426 to 9.461861), closed form 9.413403, z = 1.47
 put S=100 T=1 vol=20 r=3: MC 6.445050 +/- 0.009343 (95% CI 6.426738 to 6.463362), closed form 6.457957, z = -1.38

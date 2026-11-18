@@ -1,8 +1,8 @@
 == implied vol round trip (call prices; grid in tests/grid.hpp)
-cases 630; well-conditioned (vega >= 1e-5 per vol point) 404, worst |error| 2.911e-10 vol points
-iterations, well-conditioned: median 5, max 19
-ill-conditioned and solved: 69, of which 39 off by more than 1e-6 points; worst |error| 2.218e+01 vol points; iterations median 31, max 71
-rejected at the no-arbitrage bounds 157; above the 1000% bracket 0; not converged in 100 iterations 0
+cases 630; well-conditioned (vega >= 1e-5 per vol point) 404, worst |error| 2.403e-10 vol points
+iterations, well-conditioned: median 5, max 37
+ill-conditioned and solved: 88, of which 29 off by more than 1e-6 points; worst |error| 2.228e+01 vol points; iterations median 33, max 96
+rejected at the no-arbitrage bounds 112; above the 1000% bracket 0; not converged in 100 iterations 26
 worst price residual |BS(solved vol) - price| over every solved case: 2.842e-14
 
 == Monte Carlo, European call S=100 K=100 T=1 vol=20% r=3%; closed form 9.413403383853; parity residual 4.0e-15

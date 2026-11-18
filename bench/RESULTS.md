@@ -67,11 +67,13 @@ From `test_output.txt`, over the 630-point grid, calls and puts:
 | Put-call parity residual | 2.842e-14 | 1e-8 |
 | Delta parity residual | 0 | 1e-12 |
 | Delta vs finite difference | 0.014 of tolerance | 1 |
-| Gamma vs finite difference | 0.057 of tolerance | 1 |
+| Gamma vs finite difference | 0.063 of tolerance | 1 |
 | Vega vs finite difference | 0.060 of tolerance | 1 |
 | Theta vs finite difference | 0.901 of tolerance | 1 |
 
 All 8006 checks pass, including every reference value and boundary case, and the 11 Monte Carlo unit checks pass. Theta has the narrowest margin, 0.90 of its tolerance; the step and tolerance stay as declared.
+
+The normal cdf is computed as erfc(-x / sqrt 2) / 2. It was (1 + erf(x / sqrt 2)) / 2, which cancels in the lower tail, to exactly 0 below about x = -8.3; `tests/test_normal.cpp` checks the cdf and six small prices against 800-digit references (worst relative errors 1.174e-13 and 1.510e-10). The figures in this file are from the re-run after that change; it moved the gamma figure above from 0.057 to 0.063 and the implied-vol figures below, and left the Monte Carlo outputs, `call_curve.csv` and the figure byte-identical.
 
 ## Implied volatility
 
@@ -81,18 +83,21 @@ Round trip: price a call on each of the 630 grid points, solve for its vol, comp
 
 | Cases | Count | Outcome |
 |---|---|---|
-| Well-conditioned, vega >= 1e-5 per vol point | 404 | all solved; worst abs. error 2.911e-10 vol points; iterations median 5, max 19 |
-| Ill-conditioned, price at a no-arbitrage bound | 157 | rejected with `std::invalid_argument`: 80 deep out-of-the-money prices that are exactly 0 in double precision, 77 deep in-the-money prices exactly equal to S - K e^{-rT} |
-| Ill-conditioned, price inside the bounds | 69 | all solved; 30 within 1e-6 vol points, 39 not; worst abs. error 22.18 vol points (S = 120, T = 1/365, vol 1%, r 3%, vega 0); iterations median 31, max 71 |
-| Not converged in 100 iterations / above the 1000% bracket | 0 / 0 | |
+| Well-conditioned, vega >= 1e-5 per vol point | 404 | all solved; worst abs. error 2.403e-10 vol points; iterations median 5, max 37 |
+| Ill-conditioned, price at a no-arbitrage bound | 112 | rejected with `std::invalid_argument`: 36 deep out-of-the-money prices that are exactly 0 in double precision, 76 deep in-the-money prices exactly equal to S - K e^{-rT} |
+| Ill-conditioned, price inside the bounds | 114 | 88 solved: 59 within 1e-6 vol points, 29 not; worst abs. error 22.28 vol points (S = 120, T = 1/365, vol 1%, r 3%, vega 0); iterations median 33, max 96. 26 not converged (below) |
+| Not converged in 100 iterations / above the 1000% bracket | 26 / 0 | |
 
-Every solved case, including the 39 that miss the vol, reproduces its price to within 2.842e-14. The solver does not fail to converge on this grid; where it returns the wrong vol, the price does not determine the vol in double precision: the largest vega among those 39 cases is 6.2e-9 per vol point, so a vol change of a full point moves the price by less than 1e-8. That is expected near the no-arbitrage bounds (deep in or out of the money, short expiry or low vol), and those cases are excluded from the asserted test by the vega threshold set in advance.
+Every solved case, including the 29 that miss the vol, reproduces its price to within 2.842e-14. Where the solver returns the wrong vol, the price does not determine the vol in double precision: the largest vega among those 29 cases is 5.7e-9 per vol point, so a vol change of a full point moves the price by less than 1e-8.
+
+The 26 that do not converge are deep out-of-the-money calls with prices from 1e-303 to 1e-44 and vega at most 5.2e-43, which the old cdf rounded to exactly 0 and the solver rejected at the bound. Started above them (at 2249% for S = 50, K = 100, T = 1/365, vol 50%, r 0, above the bracket), Newton's steps each more than halve the price error, so bisection never takes over, but each lowers the vol by about half a point: after 100 iterations that case is at 95.6%. That is expected near the no-arbitrage bounds (deep in or out of the money, short expiry or low vol), and those cases are excluded from the asserted test by the vega threshold set in advance.
 
 The breakdowns above come from `iv_roundtrip.csv`:
 
 ```sh
 awk -F, 'NR>1 && $9=="rejected_at_bounds" {print ($6==0 ? "price 0" : "price at S - K exp(-rT)")}' bench/iv_roundtrip.csv | sort | uniq -c
 awk -F, 'NR>1 && $8==0 && $9=="converged" && $11>1e-6 {n++; if ($7>m) m=$7} END {print n, m}' bench/iv_roundtrip.csv
+awk -F, 'NR>1 && $9=="not_converged" {n++; if ($7>m) m=$7} END {print n, m}' bench/iv_roundtrip.csv
 ```
 
 ## Monte Carlo

@@ -51,7 +51,7 @@ bench/run.sh 100      # the same with 100 seeds per path count instead of 1000
 Results (details, tolerances and method in [bench/RESULTS.md](bench/RESULTS.md)):
 
 - **Closed form.** Put-call parity holds to 2.8e-14 over a 630-point grid of spot, expiry, vol and rate; every Greek agrees with a finite difference of the price within its stated tolerance; reference values from Hull match.
-- **Implied vol.** Every grid point with vega >= 1e-5 per vol point round-trips to within 2.9e-10 vol points, in at most 19 iterations (median 5). Below that vega the price barely moves with vol: prices that round to a no-arbitrage bound are rejected, and 39 of the other 69 solve to a vol that reproduces the price but misses the input by more than 1e-6 points.
+- **Implied vol.** Every grid point with vega >= 1e-5 per vol point round-trips to within 2.4e-10 vol points, in at most 37 iterations (median 5). Below that vega the price barely moves with vol: 112 prices that round to a no-arbitrage bound are rejected, 26 deep out-of-the-money prices (1e-303 to 1e-44) do not converge in 100 iterations, and 29 of the other 88 solve to a vol that reproduces the price but misses the input by more than 1e-6 points.
 - **Monte Carlo.** For S = K = 100, vol 20%, r 3%, T = 1 (closed form 9.4134), over 1000 seeds at each of 11 path counts from 10^2 to 10^7: RMS error falls with slope -0.5026 +/- 0.0008 on log-log axes, and the 95% interval covers the closed form in 94.65% of 11,000 runs.
 
 ![Monte Carlo estimate with its 95% interval, and error against paths](bench/mc_convergence.png)
