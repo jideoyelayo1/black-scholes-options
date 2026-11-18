@@ -21,6 +21,7 @@ jobs:
     # arm64 with Apple clang and libc++, the toolchain of the README's measurements; web/test.mjs
     # compares the WebAssembly module's results with the native build's (web_driver)
     runs-on: macos-26
+    timeout-minutes: 30 # the job took 1 min 12 s on this pull request's first run
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -66,6 +67,7 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/')
     needs: build
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     permissions:
       contents: write
     steps:
