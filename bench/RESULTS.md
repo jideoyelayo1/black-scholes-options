@@ -92,6 +92,8 @@ Every solved case, including the 29 that miss the vol, reproduces its price to w
 
 The 26 that do not converge are deep out-of-the-money calls with prices from 1e-303 to 1e-44 (at most 2.7e-46 of the spot) and vega at most 5.2e-43, which the old cdf rounded to exactly 0 and the solver rejected at the bound. The cause is the solver's safeguard. It keeps any Newton step that at least halves the price error, and for an exponentially small target price Newton from above cuts the error by only about a factor e per step while the bracket's lower end stays at 0, so every step passes and bisection never takes over. Traced on S = 50, K = 100, T = 1/365, vol 50%, r 0, with a copy of the solver that prints each iterate (the trace is in pull request #2, not in this directory): the error falls by a factor 2.74 per step by the end, and after 100 iterations the vol is at 95.6%. The start, 2249% there, lies above the 1000% bracket, but that is incidental: on 600,000 random call prices in the same pull request, clamping it to the bracket changed the non-convergences from 25,970 to 25,395. Before the cdf change such prices were not refused but solved to a wrong vol: this one gave 158.25%.
 
+The well-conditioned case that takes 37 iterations (S = 120, T = 1/365, vol 100%, r 3%) is the safeguard's other side: Newton reaches the vol by iteration 13, the price error then stalls at rounding level (7.1e-15 after 1.1e-14) and fails the halving test, and the fallback bisects from the bracket's lower end, which never moved from 0, taking 23 more iterations to come back (traced the same way).
+
 The breakdowns above come from `iv_roundtrip.csv`:
 
 ```sh
