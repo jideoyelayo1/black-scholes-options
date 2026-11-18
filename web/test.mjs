@@ -149,12 +149,15 @@ function compareClosedForm(label, cases) {
   let negative = 0, mostNegative = 0;
   cases.forEach((c, i) => {
     const w = M.price(c), s = scales(c);
-    // a price below zero can only be rounding: at most 1e-12 of its scale
-    if (w.price < 0) {
+    // The library's price can be below zero by rounding (at most 1e-12 of its scale); the module
+    // clamps it at 0, so never returns a negative price.
+    const nativePrice = fromBits(rows[i][1]);
+    if (nativePrice < 0) {
       negative++;
-      mostNegative = Math.min(mostNegative, w.price / s[0]);
-      check(w.price >= -1e-12 * s[0], `${label}: negative price ${JSON.stringify(c)}: ${w.price}`);
+      mostNegative = Math.min(mostNegative, nativePrice / s[0]);
+      check(nativePrice >= -1e-12 * s[0], `${label}: native price ${nativePrice} ${JSON.stringify(c)}`);
     }
+    check(w.price >= 0, `${label}: negative price ${JSON.stringify(c)}: ${w.price}`);
     OUTPUTS.forEach((k, j) => {
       const n = fromBits(rows[i][j + 1]);
       if (Object.is(w[k], n)) stats[j].identical++;
@@ -165,7 +168,7 @@ function compareClosedForm(label, cases) {
   });
   console.log(`native agreement, ${label} (${cases.length} cases): ` +
     OUTPUTS.map((k, j) => `${k} ${stats[j].identical} bit-identical, worst ${stats[j].worst.toExponential(2)}`).join('; ') + ' (tolerance 1e-12 of scale); ' +
-    `${negative} negative prices, the most negative ${mostNegative.toExponential(2)} of S + K e^{-rT}`);
+    `${negative} native prices below zero (the most negative ${mostNegative.toExponential(2)} of S + K e^{-rT}), none from the module`);
 }
 // Seeded samples: spot, strike, expiry and vol log-uniform and rate uniform over the allowed ranges;
 // and near the money, strike log-uniform from 1 to 10^4, spot within a factor 2 of it, expiry from a

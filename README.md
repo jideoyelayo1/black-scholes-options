@@ -100,7 +100,7 @@ bench/web_tests.sh                    # all of the above, recorded in bench/raw/
 | `impliedVol` | `price` (of a call), `spot`, `strike`, `expiry`, `rate` | `{ok: true, vol, iterations}` |
 | `monteCarlo` | `type`, `spot`, `strike`, `expiry`, `vol`, `rate`, `paths`, `seed` | `{ok: true, price, stdError, ciLow, ciHigh, closedForm}` |
 
-`ciLow` and `ciHigh` are the 95% interval, `price` -/+ 1.96 `stdError`; `closedForm` is `price()`'s price for the same inputs. `limits` is a frozen object, `{spot: {min, max}, ...}`, of the ranges below.
+`price` is never negative (a price below zero by rounding is returned as 0). `ciLow` and `ciHigh` are the 95% interval, `price` -/+ 1.96 `stdError`; `closedForm` is `price()`'s price for the same inputs. `limits` is a frozen object, `{spot: {min, max}, ...}`, of the ranges below.
 
 ```js
 import createPricer from './pricer.mjs';   // pricer.wasm is fetched from next to it
@@ -162,7 +162,7 @@ The closed form and the solver are bounded work (the solver stops after 100 iter
 - **The implied vol** is that of a call (a put's is the call's at the same strike and expiry, by parity). Where vega is below 1e-7 x (S + K e^{-rT}) per vol point the price barely moves with vol, and the solver can return a vol that reproduces the price but is far from the one that made it; a price within rounding of the lower bound may be refused by one build and solved by the other.
 - **A study, not a trading tool**: European options under Black-Scholes with constant rate and volatility, no dividends, no early exercise, no rho. The checks show the module computes the model as the native library does, not that the model describes a market.
 
-Known limits: prices can come out negative by rounding (down to -2.31e-17 of S + K e^{-rT} in the samples), so a page should show them to a fixed number of decimals; the normal cdf is computed as erfc(-x / sqrt(2)) / 2, which keeps its relative accuracy in the lower tail (within 1.2e-13 of an 800-digit reference down to x = -37, and small prices within 1.5e-10 in the cases of `tests/test_normal.cpp`), but where a price is the difference of two nearly equal terms its error is still about 1e-16 x (S + K e^{-rT}) in absolute terms; the module is built for browsers' main thread and Node (`-sENVIRONMENT=web,node`), not for a Web Worker; and it was tested in Node only, on macOS (no browser, no Linux).
+Known limits: the formula subtracts one term from another, so the library's price can come out a little below zero by rounding (natively, down to -3.19e-17 of S + K e^{-rT} in the samples); `price` and `closedForm` return 0 instead, but the Greeks are returned as computed, so one that rounds to zero can print as `-0.0000` with `toFixed` (`(Math.round(x * 1e4) / 1e4 || 0).toFixed(4)` prints `0.0000`); the normal cdf is computed as erfc(-x / sqrt(2)) / 2, which keeps its relative accuracy in the lower tail (within 1.2e-13 of an 800-digit reference down to x = -37, and small prices within 1.5e-10 in the cases of `tests/test_normal.cpp`), but where a price is the difference of two nearly equal terms its error is still about 1e-16 x (S + K e^{-rT}) in absolute terms; the module is built for browsers' main thread and Node (`-sENVIRONMENT=web,node`), not for a Web Worker; and it was tested in Node only, on macOS (no browser, no Linux).
 
 ## License
 

@@ -45,6 +45,10 @@ val guarded(const char* fn, F call) {
     }
 }
 
+// The formula subtracts one term from another, so a price can come out a little below zero by
+// rounding; it is returned as 0. NaN would stay NaN (none reaches here: post.js checks the inputs).
+double nonNegative(double price) { return price < 0 ? 0.0 : price; }
+
 std::string number(double x) {
     char s[32];
     std::snprintf(s, sizeof s, "%.10g", x);
@@ -64,7 +68,7 @@ val rawPrice(bool call, double spot, double strike, double expiry, double vol, d
     return guarded("price", [&] {
         val o = val::object();
         o.set("ok", true);
-        o.set("price", (call ? BSCall : BSPut)(spot, 0, strike, expiry, vol, rate));
+        o.set("price", nonNegative((call ? BSCall : BSPut)(spot, 0, strike, expiry, vol, rate)));
         o.set("delta", (call ? BSCall_Delta : BSPut_Delta)(spot, 0, strike, expiry, vol, rate));
         o.set("gamma", (call ? BSCall_Gamma : BSPut_Gamma)(spot, 0, strike, expiry, vol, rate));
         o.set("vega", (call ? BSCall_Vega : BSPut_Vega)(spot, 0, strike, expiry, vol, rate));
@@ -108,7 +112,7 @@ val rawMonteCarlo(bool call, double spot, double strike, double expiry, double v
         o.set("stdError", r.std_error);
         o.set("ciLow", r.ci_low);
         o.set("ciHigh", r.ci_high);
-        o.set("closedForm", (call ? BSCall : BSPut)(spot, 0, strike, expiry, vol, rate));
+        o.set("closedForm", nonNegative((call ? BSCall : BSPut)(spot, 0, strike, expiry, vol, rate)));
         return o;
     });
 }
