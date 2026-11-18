@@ -20,8 +20,8 @@
   // negative spots, strikes, vols and expiries are refused. The top vol is the implied-vol solver's
   // bracket. Rates are floored at -10% so that e^{-rT}, which multiplies the strike, stays below
   // e^{10} at the longest expiry: the price's rounding error is about 1e-16 of S + K e^{-rT}.
-  // The fewest paths is 1,000, not the library's 2: a floor, below which the 95% interval was far
-  // from 95% even at the money (bench/raw/mc_coverage.txt); it is not where the interval holds.
+  // The fewest paths is 1,000, not the library's 2: a floor, below which the 95% interval covered less
+  // even at the money (89% to 94% at 100 paths, bench/raw/mc_coverage.txt); not where it holds.
   // Paths bound the work: Monte Carlo's time is proportional to them. web/test.mjs times the largest
   // call for the usual option and for the slowest case found (terminal spots so small that the
   // exponential returns subnormal numbers, slowly); the README gives the times and the reasoning.
