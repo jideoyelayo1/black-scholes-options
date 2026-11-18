@@ -120,14 +120,14 @@ pricer.impliedVol({ price: 2, spot: 120, strike: 100, expiry: 1, rate: 3 });
 
 ### Refusals
 
-No function throws. A call that cannot be answered returns `{ok: false, error, message}`: `error` is one of the names below, `message` is for people and names the argument. Arguments are checked in JavaScript (`web/post.js`) before anything enters WebAssembly, and nothing is coerced: `'100'`, `true`, `null`, `100n` and `new Number(100)` are not numbers.
+No function throws. A call that cannot be answered returns `{ok: false, error, message}`: `error` is one of the names below, `message` is for people and names the argument; it echoes at most 20 characters of a caller's string and only the type of anything else. Arguments are checked in JavaScript (`web/post.js`) before anything enters WebAssembly, and nothing is coerced: `'100'`, `true`, `null`, `100n` and `new Number(100)` are not numbers.
 
 | `error` | When |
 |---|---|
 | `expected_one_object` | not exactly one argument, or it is not an object (null, an array, a number, a string) |
 | `unknown_argument` | a field that is not one of the function's (a misspelling such as `volatility`) |
 | `missing_argument` | a field is missing (inherited fields do not count) |
-| `unreadable_argument` | reading the object threw (a throwing getter or proxy) |
+| `unreadable_argument` | reading the object threw (a throwing getter or proxy, a revoked proxy) |
 | `unknown_type` | `type` is not exactly `'call'` or `'put'` |
 | `not_a_number` | a field is not of type number |
 | `not_finite` | NaN or an infinity |

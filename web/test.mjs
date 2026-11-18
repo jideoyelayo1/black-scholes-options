@@ -394,6 +394,24 @@ const isRefusal = (r, error) =>
     expect(`${fn} with a throwing getter`, f(getter), 'unreadable_argument');
     const proxy = new Proxy(base, { ownKeys() { throw new Error('no'); } });
     expect(`${fn} with a throwing proxy`, f(proxy), 'unreadable_argument');
+    // a revoked proxy throws on every operation but typeof, Array.isArray included
+    const { proxy: revoked, revoke } = Proxy.revocable({}, {});
+    revoke();
+    expect(`${fn}(revoked proxy)`, f(revoked), 'unreadable_argument');
+    for (const k of Object.keys(base)) expect(`${fn} with ${k} a revoked proxy`, f({ ...base, [k]: revoked }), k === 'type' ? 'unknown_type' : 'not_a_number');
+    // a message echoes at most 20 characters of a caller's string, and nothing of a BigInt or a symbol
+    const long = 'x'.repeat(1e6);
+    for (const [label, args, error] of [
+      ['a long string', { ...base, strike: long }, 'not_a_number'],
+      ['a long key', { ...base, [long]: 1 }, 'unknown_argument'],
+      ['a long type', { ...base, ...(fn === 'impliedVol' ? { price: long } : { type: long }) }, fn === 'impliedVol' ? 'not_a_number' : 'unknown_type'],
+      ['a huge BigInt', { ...base, strike: 2n ** 100000n }, 'not_a_number'],
+      ['a long symbol', { ...base, strike: Symbol(long) }, 'not_a_number'],
+    ]) {
+      const r = f(args);
+      expect(`${fn} with ${label}`, r, error);
+      check(r.message.length <= 160, `${fn} with ${label}: a message of ${r.message.length} characters`);
+    }
     // accepted: an object without a prototype, and arguments in any order
     check(f(Object.assign(Object.create(null), base)).ok === true, `${fn} with a prototype-less object`);
     check(JSON.stringify(f(Object.fromEntries(Object.entries(base).reverse()))) === JSON.stringify(f(base)), `${fn} with its arguments in another order`);
@@ -429,6 +447,8 @@ const isRefusal = (r, error) =>
 {
   const N = 100000;
   const throwing = Object.defineProperty({ ...without(BASE.price, 'spot') }, 'spot', { enumerable: true, get() { throw new Error('no'); } });
+  const { proxy: revoked, revoke } = Proxy.revocable({}, {});
+  revoke();
   const KINDS = [
     ['expected_one_object', (X, i) => X.price(...[[], [null], [5], [BASE.price, BASE.price]][i % 4])],
     ['unknown_argument', (X) => X.price({ ...BASE.price, volatility: 20 })],
@@ -438,7 +458,7 @@ const isRefusal = (r, error) =>
     ['out_of_range', (X, i) => X.monteCarlo({ ...BASE.monteCarlo, ...[{ spot: -1 }, { vol: 0 }, { paths: 2e6 + 1 }, { rate: -11 }][i % 4] })],
     ['not_an_integer', (X) => X.monteCarlo({ ...BASE.monteCarlo, seed: 0.5 })],
     ['unknown_type', (X) => X.price({ ...BASE.price, type: 'CALL' })],
-    ['unreadable_argument', (X) => X.price(throwing)],
+    ['unreadable_argument', (X, i) => X.price(i % 2 ? throwing : revoked)],
     ['below_lower_bound', (X) => X.impliedVol({ ...BASE.impliedVol, price: -1 })],
     ['above_upper_bound', (X) => X.impliedVol({ ...BASE.impliedVol, price: 100 })],
     ['vol_above_bracket', (X) => X.impliedVol({ price: 99.99999, spot: 100, strike: 100, expiry: 1, rate: 0 })],
