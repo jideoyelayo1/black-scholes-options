@@ -1,7 +1,8 @@
 // Tests of the WebAssembly module (web/dist, from web/build.sh), with Node built-ins only. All but
 // section 6 run against the release module itself; section 6 needs the hooks that only the test
 // module (build/wasm-test/pricer_test.mjs: the release sources plus web/test_hooks.cpp) has.
-// 0. the module's shape: the public functions and limits, no raw functions, no test hooks;
+// 0. the build and the module's shape: SHA256SUMS and the sizes in BUILD.txt match the files; the
+//    public functions and limits, no raw functions, no test hooks;
 // 1. known answers: Hull's textbook values, put-call parity, the no-arbitrage bounds and limiting cases;
 // 2. agreement with the native build (web/driver.cpp, through the library directly) on the parameter
 //    grid of tests/grid.hpp, call and put, price and every Greek;
@@ -19,6 +20,7 @@
 // TIME_LIMIT_SECONDS overrides section 7's bound (0.5 s; 2 s when CI is set).
 
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import createModule from './dist/pricer.mjs';
@@ -48,6 +50,14 @@ const LIMITS = {
   for (const name of ['price', 'impliedVol', 'monteCarlo']) check(typeof M[name] === 'function', `the module has no function ${name}`);
   check(JSON.stringify(M.limits) === JSON.stringify(LIMITS), `limits ${JSON.stringify(M.limits)}`);
   check(Object.isFrozen(M.limits) && Object.values(M.limits).every(Object.isFrozen), 'limits are not frozen');
+  const dist = `${ROOT}web/dist/`;
+  const sums = readFileSync(`${dist}SHA256SUMS`, 'utf8').trim().split('\n').map((line) => line.split(/ +/));
+  check(sums.map(([, f]) => f).join() === 'pricer.mjs,pricer.wasm,BUILD.txt', `SHA256SUMS lists ${sums.map(([, f]) => f)}`);
+  for (const [sum, f] of sums) check(createHash('sha256').update(readFileSync(dist + f)).digest('hex') === sum, `${f} does not match SHA256SUMS`);
+  const build = readFileSync(`${dist}BUILD.txt`, 'utf8');
+  for (const f of ['pricer.mjs', 'pricer.wasm'])
+    check(build.includes(`${f}: ${readFileSync(dist + f).length} bytes`), `BUILD.txt does not give the size of ${f}`);
+  check(/^emcc .* 6\.0\.13 /.test(build) && /^source commit: [0-9a-f]{40}/m.test(build), `BUILD.txt: ${build}`);
 }
 
 // tests/grid.hpp, read rather than copied: K = 100, 7 spots, 5 expiries, 6 vols, 3 rates
