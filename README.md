@@ -162,53 +162,53 @@ One corner of these limits gives a poor standard error. `MCPrice` computes it in
 
 - **Agreement with the native build** (`web/test.mjs` against `web/driver.cpp`, which calls the library directly; macOS arm64, Apple clang, libc++). Not bit for bit in general: the two builds use different maths libraries and the native arm64 build fuses multiplies and adds. Over the grid of `tests/grid.hpp` and two seeded samples of 20,000 points each (one over all the limits, one near the money), every price and Greek agrees within 1e-12 of the size of the terms its formula combines (S + K e^{-rT} for the price); the largest difference was 2.15e-14 of that, and 6,735 to 19,225 of each 20,000 were bit-identical. Implied vols agree within 1e-7 vol points wherever the price determines the vol (largest 1.60e-9). Seeded Monte Carlo uses the same random numbers in both builds (libc++'s `std::normal_distribution` on `std::mt19937_64`): 7 of 20 runs of 10^6 paths were bit-identical and the largest relative difference was 1.31e-14.
 - **Repeatable in WebAssembly.** The same inputs and seed give the same bits on every call; one seeded Monte Carlo result is pinned bit for bit in `web/test.mjs`, which CI runs on another machine.
-- **Monte Carlo is an estimate**, with its own estimated standard error, and its 95% interval is not a guarantee. When few paths finish in the money, or vol x sqrt(T) is large, the payoff is so skewed that the sample misses the rare paths that carry the price, and the standard error, estimated from the same sample, misses them too. Each result reports both quantities, `inTheMoneyPaths` and `volRootT`, so that a caller can judge. `bench/mc_coverage.mjs` measured how often the interval contains the closed form, through the module, for calls and puts with S = 100, T = 1, r 3%, strikes 50 to 200, vol x sqrt(T) 0.2 to 1.5 and 1,000 to 100,000 paths, with 500 to 10,000 seeds per option (`bench/raw/mc_coverage.txt`, where every coverage has its 95% interval and run count). What it found, as guidance:
-  - **Paths in the money matter most.** With none, the estimate is 0 with a standard error of 0 and the interval never covers; with fewer than about 30, coverage was far below 95%: no option whose runs typically had fewer than 30 in the money covered more than 88.4% at 1,000 paths, 75.3% at 10,000 or 92.2% at 100,000. The cases a page is likely to meet:
+- **Monte Carlo is an estimate**, with its own estimated standard error, and its 95% interval is not a guarantee. When few paths finish in the money, or vol x sqrt(T) is large, the payoff is so skewed that the sample misses the rare paths that carry the price, and the standard error, estimated from the same sample, misses them too. Each result reports both quantities, `inTheMoneyPaths` and `volRootT`, so that a caller can judge. `bench/mc_coverage.mjs` measured how often the interval covers the closed form, through the module, for calls and puts with S = 100, T = 1, r 3%, strikes 50 to 200, vol x sqrt(T) 0.2 to 1.5 and 1,000, 10,000 and 100,000 paths, with seeds 1 to 5,000, 2,000 and 2,000 at those path counts and 10,000 for the at-the-money table (`bench/raw/mc_coverage.txt`, where every coverage has its 95% interval and run count). What it found, as guidance:
+  - **Paths in the money matter most.** With none, the estimate is 0 with a standard error of 0 and the interval never covers; with fewer than about 30, coverage was far below 95%: no option whose runs typically had fewer than 30 in the money covered more than 88.4% at 1,000 paths, 75.3% at 10,000 or 91.8% at 100,000. The cases a page is likely to meet:
 
 | Option (S = 100, T = 1, r 3%) | 1,000 paths | 10,000 paths | 100,000 paths |
 |---|---|---|---|
-| call, strike 200, vol x sqrt(T) 0.2 | 0.258 (0 in the money) | 0.753 (3 in the money) | 0.932 (31 in the money) |
-| put, strike 60, vol x sqrt(T) 0.2 | 0.819 (4 in the money) | 0.928 (46 in the money) | 0.946 (463 in the money) |
-| put, strike 50, vol x sqrt(T) 0.2 | 0.185 (0 in the money) | 0.700 (2 in the money) | 0.922 (22 in the money) |
-| call, strike 160, vol x sqrt(T) 0.2 | 0.884 (11 in the money) | 0.944 (107 in the money) | 0.920 (1072 in the money) |
+| call, strike 200, vol x sqrt(T) 0.2 | 0.258 (0 in the money) | 0.753 (3 in the money) | 0.921 (32 in the money) |
+| put, strike 60, vol x sqrt(T) 0.2 | 0.819 (4 in the money) | 0.928 (46 in the money) | 0.947 (461 in the money) |
+| put, strike 50, vol x sqrt(T) 0.2 | 0.185 (0 in the money) | 0.700 (2 in the money) | 0.918 (22 in the money) |
+| call, strike 160, vol x sqrt(T) 0.2 | 0.884 (11 in the money) | 0.944 (107 in the money) | 0.934 (1073 in the money) |
 | call, strike 200, vol x sqrt(T) 1.5 | 0.910 (117 in the money) | 0.937 (1166 in the money) | 0.942 (11658 in the money) |
 
-  - **With at least 100 in the money, coverage was about 94 to 95%, not 95%**, at every path count tested (the lowest, 93.4%, at vol x sqrt(T) 1.5 and 1,000 paths). Pooled over all the options' runs with at least 100 paths in the money, by vol x sqrt(T):
+  - **With at least 100 in the money, coverage was about 94 to 95%, not 95%**, at every path count tested (the lowest pooled figure, 93.4%, at vol x sqrt(T) 1.5 and 1,000 paths). Pooled over all the options' runs with at least 100 paths in the money, by vol x sqrt(T):
 
 | Paths | 0.2 | 0.5 | 0.75 | 1 | 1.25 | 1.5 | all |
 |---|---|---|---|---|---|---|---|
-| 1,000 | 0.949 | 0.950 | 0.950 | 0.947 | 0.943 | 0.934 | 0.945 |
-| 10,000 | 0.945 | 0.945 | 0.945 | 0.945 | 0.945 | 0.941 | 0.944 |
-| 100,000 | 0.945 | 0.944 | 0.942 | 0.940 | 0.941 | 0.940 | 0.942 |
+| 1,000 | 94.9% | 95.0% | 95.0% | 94.7% | 94.3% | 93.4% | 94.5% |
+| 10,000 | 94.5% | 94.5% | 94.5% | 94.5% | 94.5% | 94.1% | 94.4% |
+| 100,000 | 95.0% | 95.1% | 95.1% | 95.0% | 95.0% | 94.9% | 95.0% |
 
-    Options whose runs typically had at least 100 in the money and vol x sqrt(T) at most 1 covered 93.6% to 95.4% at 1,000 paths, 93.8% to 95.4% at 10,000 and 92.0% to 95.8% at 100,000 (500 seeds there, so wider intervals).
+    Options whose runs typically had at least 100 in the money and vol x sqrt(T) at most 1 covered 93.6% to 95.4% at 1,000 paths; 93.8% to 95.4% at 10,000 paths; 93.4% to 95.6% at 100,000 paths.
   - **Large vol x sqrt(T) lowers coverage for calls at small path counts**, whose payoff is unbounded; puts, bounded by the strike, held up. At the money, 10,000 seeds at 1,000 paths:
 
 | vol x sqrt(T) | call | put |
 |---|---|---|
-| 0.25 | 0.947 (498 in the money) | 0.951 (502) |
-| 0.5 | 0.947 (425 in the money) | 0.951 (575) |
-| 0.75 | 0.946 (369 in the money) | 0.950 (631) |
-| 1 | 0.942 (319 in the money) | 0.948 (681) |
-| 1.25 | 0.935 (274 in the money) | 0.947 (726) |
-| 1.5 | 0.917 (233 in the money) | 0.946 (767) |
+| 0.25 | 94.7% (498 in the money) | 95.1% (502) |
+| 0.5 | 94.7% (425 in the money) | 95.1% (575) |
+| 0.75 | 94.6% (369 in the money) | 95.0% (631) |
+| 1 | 94.2% (319 in the money) | 94.8% (681) |
+| 1.25 | 93.5% (274 in the money) | 94.7% (726) |
+| 1.5 | 91.7% (233 in the money) | 94.6% (767) |
 
   - **Binned by the observed count**, pooled over everything (a run with fewer paths in the money than usual also tends to underestimate, so a bin mixes options):
 
 | inTheMoneyPaths | 1,000 paths | 10,000 paths | 100,000 paths |
 |---|---|---|---|
-| 0 | 0.000 (n 7650) | 0.000 (n 304) | - |
-| 1-9 | 0.833 (n 9098) | 0.786 (n 3692) | - |
-| 10-29 | 0.969 (n 3252) | 0.688 (n 16) | 0.902 (n 650) |
-| 30-99 | 0.894 (n 7242) | 0.913 (n 2461) | 0.974 (n 350) |
-| 100-299 | 0.939 (n 107251) | 0.976 (n 1527) | - |
-| 300-999 | 0.948 (n 277857) | 0.931 (n 2184) | 0.941 (n 505) |
-| 1000-2999 | 0.948 (n 7650) | 0.944 (n 43816) | 0.925 (n 495) |
-| 3000-9999 | - | 0.945 (n 113696) | 0.942 (n 500) |
-| 10000-29999 | - | 0.931 (n 304) | 0.944 (n 11000) |
-| 30000-99999 | - | - | 0.941 (n 28500) |
+| 0 | 0.0% (n 7,650) | 0.0% (n 304) | - |
+| 1-9 | 83.3% (n 9,098) | 78.6% (n 3,692) | 33.3% (n 3) |
+| 10-29 | 96.9% (n 3,252) | 68.8% (n 16) | 89.1% (n 2,587) |
+| 30-99 | 89.4% (n 7,242) | 91.3% (n 2,461) | 97.2% (n 1,410) |
+| 100-299 | 93.9% (n 107,251) | 97.6% (n 1,527) | - |
+| 300-999 | 94.8% (n 277,857) | 93.1% (n 2,184) | 94.0% (n 2,023) |
+| 1000-2999 | 94.8% (n 7,650) | 94.4% (n 43,816) | 94.1% (n 1,977) |
+| 3000-9999 | - | 94.5% (n 113,696) | 95.2% (n 2,000) |
+| 10000-29999 | - | 93.1% (n 304) | 94.9% (n 44,000) |
+| 30000-99999 | - | - | 95.1% (n 114,000) |
 
-  No simple rule in these two quantities separates good coverage from bad sharply. As guidance only: read the interval as roughly 95% when `inTheMoneyPaths` is at least 100 and `volRootT` at most 1 (pooled coverage 94.0% to 95.0% there, single options 92.0% to 95.8%); treat it as unreliable when `inTheMoneyPaths` is below 30, and as optimistic for a call when `volRootT` is above 1 and paths are few. Measured at S = 100, T = 1 and r 3% only.
+  No simple rule in these two quantities separates good coverage from bad sharply. As guidance only: read the interval as roughly 95% when `inTheMoneyPaths` is at least 100 and `volRootT` at most 1 (pooled coverage 94.5% to 95.1% there, single options 93.4% to 95.6%); treat it as unreliable when `inTheMoneyPaths` is below about 30, and as optimistic for a call when `volRootT` is above 1 and paths are few. Measured at S = 100, T = 1 and r 3% only.
 - **The implied vol** is that of a call (a put's is the call's at the same strike and expiry, by parity). Where vega is below 1e-7 x (S + K e^{-rT}) per vol point the price barely moves with vol, and the solver can return a vol that reproduces the price but is far from the one that made it; within 1e-12 of S + K e^{-rT} of the lower bound (a price at the in-the-money bound, or a tiny one far out of the money) the two builds' rounding decides, and one may refuse the price, or stop at 100 iterations, where the other solves it. For a call price exponentially small beside the spot the solver stops at 100 iterations and refuses with `not_converged`; before the cdf change the module instead returned a wrong vol without warning, 158.25% for a price whose vol is 50% (S = 50, K = 100, T = 1/365, r 0).
 - **A study, not a trading tool**: European options under Black-Scholes with constant rate and volatility, no dividends, no early exercise, no rho. The checks show the module computes the model as the native library does, not that the model describes a market.
 

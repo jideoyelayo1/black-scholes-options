@@ -4,7 +4,7 @@
 //
 // The grid: calls and puts with S = 100, T = 1, r = 3% (so vol x sqrt(T) is vol / 100), strikes 50,
 // 60, 80, 100, 125, 160 and 200 (in, at and out of the money for each type), vols 20% to 150%, and
-// 1,000, 10,000 and 100,000 paths, with seeds 1 to 5,000, 2,000 and 500 at those path counts. A
+// 1,000, 10,000 and 100,000 paths, with seeds 1 to 5,000, 2,000 and 2,000 at those path counts. A
 // longer run with the same seed extends the shorter one's stream, as in the study, so the path counts
 // are not independent samples. Then the at-the-money call and put with 10,000 seeds at 1,000 paths,
 // and, below the floor of 1,000 paths, the at-the-money call at 100 paths through the test module's
@@ -21,7 +21,7 @@ const M = await createModule();
 const T = await createTestModule();
 const STRIKES = [50, 60, 80, 100, 125, 160, 200];
 const VOLS = [20, 50, 75, 100, 125, 150];
-const PATHS = [[1e3, 5000], [1e4, 2000], [1e5, 500]];
+const PATHS = [[1e3, 5000], [1e4, 2000], [1e5, 2000]];
 const ITM_BINS = [0, 1, 10, 30, 100, 300, 1000, 3000, 10000, 30000, 100000]; // lower edges
 const Z = 1.959963984540054;
 
