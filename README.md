@@ -92,7 +92,7 @@ bench/web_tests.sh                    # all of the above, recorded in bench/raw/
 
 ### API
 
-`pricer.mjs` exports a factory; the module it resolves to has three functions and `limits`. Units are the library's: `vol` and `rate` in percent (20 means 20%), `expiry` the time to expiry in years (the valuation time is 0), vega per vol point, theta per calendar day. Theta is the change in value as one calendar day passes: minus the derivative with respect to the time to expiry, divided by 365, so usually negative.
+`pricer.mjs` exports a factory; the module it resolves to has three functions and `limits`. Call the factory with no options, as below: Emscripten runs options such as `onRuntimeInitialized` or `preRun` before `web/post.js` has removed the raw, unchecked functions, so page code passed that way could keep them and call them with anything. The checks guard against a page's mistakes, not against the page itself. Units are the library's: `vol` and `rate` in percent (20 means 20%), `expiry` the time to expiry in years (the valuation time is 0), vega per vol point, theta per calendar day. Theta is the change in value as one calendar day passes: minus the derivative with respect to the time to expiry, divided by 365, so usually negative.
 
 | Function | Arguments (all required, no others) | Result |
 |---|---|---|

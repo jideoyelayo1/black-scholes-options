@@ -1,7 +1,8 @@
 // Linked into the module with --post-js (web/build.sh). With Emscripten 6.0.13 it runs inside the
 // module factory after the runtime is up, just before the factory returns. It replaces the raw
 // functions of web/pricer_wasm.cpp with price, impliedVol and monteCarlo, and removes the raw ones
-// (web/test.mjs fails if this did not happen).
+// (web/test.mjs fails if this did not happen). Options passed to the factory (onRuntimeInitialized,
+// preRun) run before this does and could reach the raw ones, so the README says to pass none.
 //
 // Each public function takes one plain object of named numbers and never throws. Every argument is
 // checked here, in JavaScript, before anything enters WebAssembly: the call's shape, each field's
