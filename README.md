@@ -98,9 +98,9 @@ bench/web_tests.sh                    # all of the above, recorded in bench/raw/
 |---|---|---|
 | `price` | `type` (`'call'` or `'put'`), `spot`, `strike`, `expiry`, `vol`, `rate` | `{ok: true, price, delta, gamma, vega, theta}` |
 | `impliedVol` | `price` (of a call), `spot`, `strike`, `expiry`, `rate` | `{ok: true, vol, iterations}` |
-| `monteCarlo` | `type`, `spot`, `strike`, `expiry`, `vol`, `rate`, `paths`, `seed` | `{ok: true, price, stdError, ciLow, ciHigh, closedForm}` |
+| `monteCarlo` | `type`, `spot`, `strike`, `expiry`, `vol`, `rate`, `paths`, `seed` | `{ok: true, price, stdError, ciLow, ciHigh, closedForm, volRootT, reliable}` |
 
-`price` is never negative (a price below zero by rounding is returned as 0). `ciLow` and `ciHigh` are the 95% interval, `price` -/+ 1.96 `stdError`; `closedForm` is `price()`'s price for the same inputs. `limits` is a frozen object, `{spot: {min, max}, ...}`, of the ranges below.
+`price` is never negative (a price below zero by rounding is returned as 0). `ciLow` and `ciHigh` are the 95% interval, `price` -/+ 1.96 `stdError`; `closedForm` is `price()`'s price for the same inputs. `volRootT` is vol x sqrt(T), with vol as a fraction (0.2 for 20% over one year), and `reliable` is whether it is at or below `limits.reliableVolRootT`: beyond that the 95% interval was measured not to hold (below). `limits` is a frozen object, `{spot: {min, max}, ...}`, of the ranges below, with `reliableVolRootT`, a number.
 
 ```js
 import createPricer from './pricer.mjs';   // pricer.wasm is fetched from next to it
@@ -113,7 +113,7 @@ pricer.impliedVol({ price: 9.413403383853016, spot: 100, strike: 100, expiry: 1,
 // {ok: true, vol: 19.999999999999993, iterations: 4}
 pricer.monteCarlo({ type: 'call', spot: 100, strike: 100, expiry: 1, vol: 20, rate: 3, paths: 1000000, seed: 42 });
 // {ok: true, price: 9.434143734972519, stdError: 0.014141785963166932, ciLow: 9.406426343807638,
-//  ciHigh: 9.4618611261374, closedForm: 9.413403383853016}
+//  ciHigh: 9.4618611261374, closedForm: 9.413403383853016, volRootT: 0.2, reliable: true}
 pricer.impliedVol({ price: 2, spot: 120, strike: 100, expiry: 1, rate: 3 });
 // {ok: false, error: 'below_lower_bound', message: 'impliedVol: a call price must be above max(S - K exp(-rT), 0) = 22.95544665; got 2'}
 ```
@@ -149,7 +149,7 @@ Nothing is thrown from C++ into JavaScript, since such an exception would leave 
 | `expiry` | 0.0001 to 100 years | positive: at zero the library's Greeks are NaN at the strike |
 | `vol` | 0.01% to 1000% | positive; 1000% is the top of the implied-vol solver's bracket |
 | `rate` | -10% to 100% | negative rates multiply the strike by e^{-rT}, and the price's rounding error grows with S + K e^{-rT}; the floor keeps e^{-rT} under e^{10} |
-| `paths` | 2 to 2,000,000 | 2 is the library's minimum; the top bounds the work, which is proportional to paths. The largest call took 0.174 to 0.181 s for S = K = 100, T = 1, vol 20%, and 0.270 to 0.330 s in the slowest case found (S = K = 0.01, T = 100, vol 375%, r -10%: most terminal spots are subnormal numbers, which the exponential is slow to produce), on an Apple M1 Pro under a load average near 100 (first call in a fresh Node process, then two more), so a laptop a few times slower stays near a second |
+| `paths` | 1,000 to 2,000,000 | below 1,000 the 95% interval does not hold even at a modest vol x sqrt(T) (0.929 at 100 paths and 0.5, `bench/raw/mc_coverage.txt`; the library's own minimum is 2); the top bounds the work, which is proportional to paths. The largest call took 0.174 to 0.181 s for S = K = 100, T = 1, vol 20%, and 0.270 to 0.330 s in the slowest case found (S = K = 0.01, T = 100, vol 375%, r -10%: most terminal spots are subnormal numbers, which the exponential is slow to produce), on an Apple M1 Pro under a load average near 100 (first call in a fresh Node process, then two more), so a laptop a few times slower stays near a second |
 | `seed` | 0 to 2^53 - 1 | whole numbers a JavaScript number holds exactly |
 
 The closed form and the solver are bounded work (the solver stops after 100 iterations), so `paths` is the only cap on time. No call keeps memory: over the 1.3 million refused calls of the tests the module's memory stayed at 16,908,288 bytes.
@@ -160,7 +160,19 @@ One corner of these limits gives a poor standard error. `MCPrice` computes it in
 
 - **Agreement with the native build** (`web/test.mjs` against `web/driver.cpp`, which calls the library directly; macOS arm64, Apple clang, libc++). Not bit for bit in general: the two builds use different maths libraries and the native arm64 build fuses multiplies and adds. Over the grid of `tests/grid.hpp` and two seeded samples of 20,000 points each (one over all the limits, one near the money), every price and Greek agrees within 1e-12 of the size of the terms its formula combines (S + K e^{-rT} for the price); the largest difference was 2.15e-14 of that, and 8,534 to 19,417 of each 20,000 were bit-identical. Implied vols agree within 1e-7 vol points wherever the price determines the vol (largest 1.51e-9). Seeded Monte Carlo uses the same random numbers in both builds (libc++'s `std::normal_distribution` on `std::mt19937_64`): 7 of 20 runs of 10^6 paths were bit-identical and the largest relative difference was 1.31e-14.
 - **Repeatable in WebAssembly.** The same inputs and seed give the same bits on every call; one seeded Monte Carlo result is pinned bit for bit in `web/test.mjs`, which CI runs on another machine.
-- **Monte Carlo is an estimate**, with its own estimated standard error. Up to vol x sqrt(T) = 2 its 95% interval behaved as one (18 or 19 of 20 seeds covered the closed form); beyond, the sample misses the rare paths that carry the price: at vol x sqrt(T) = 4, 10 of 20 intervals covered it, and at 10 the estimate was 0 with a standard error of 0 against a price of 100 (`bench/raw/web_tests.txt`).
+- **Monte Carlo is an estimate**, with its own estimated standard error, and its 95% interval holds only while vol x sqrt(T) is small: beyond that a call's payoff is so skewed that the sample misses the rare paths that carry its price, and the standard error misses them too. Every result says so: `volRootT` is vol x sqrt(T) and `reliable` is whether it is at or below `limits.reliableVolRootT`, 1.25. `bench/mc_coverage.mjs` chose that threshold by measuring how often the interval contains the closed form for a call (S = K = 100, r 3%, T = 1) over seeds 1 to 1,000 (`bench/raw/mc_coverage.txt`; * where the coverage's own 95% interval excludes 0.95):
+
+| vol x sqrt(T) | 100 paths (below the minimum) | 1,000 | 10,000 | 100,000 | 1,000,000 | 2,000,000 |
+|---|---|---|---|---|---|---|
+| 0.25 | 0.943 | 0.950 | 0.944 | 0.937 | 0.944 | 0.948 |
+| 0.5 | 0.929 * | 0.950 | 0.948 | 0.937 | 0.949 | 0.945 |
+| 0.75 | 0.917 * | 0.952 | 0.944 | 0.939 | 0.947 | 0.947 |
+| 1 | 0.899 * | 0.950 | 0.945 | 0.944 | 0.950 | 0.952 |
+| 1.25 | 0.864 * | 0.942 | 0.943 | 0.946 | 0.946 | 0.947 |
+| 1.5 | 0.818 * | 0.923 * | 0.936 | 0.947 | 0.956 | 0.949 |
+| 2 | 0.711 * | 0.859 * | 0.907 * | 0.927 * | 0.954 | 0.957 |
+
+  1.25 is the largest value tried at which coverage was consistent with 95% at every allowed path count, as it was at every smaller value; at 1.5 it was 0.923 at 1,000 paths. That is also why the fewest paths allowed is 1,000 rather than the library's 2: at 100 paths coverage was already 0.929 at 0.5. Beyond the threshold the estimate is still returned, to be seen beside the closed form: at vol x sqrt(T) = 4, 10 of 20 intervals at 10^5 paths covered the price, and at 10 the estimate was 0 with a standard error of 0 against a price of 100 (`bench/raw/web_tests.txt`). Measured on a call; a put's payoff is bounded by the strike, so `reliable` is cautious for puts.
 - **The implied vol** is that of a call (a put's is the call's at the same strike and expiry, by parity). Where vega is below 1e-7 x (S + K e^{-rT}) per vol point the price barely moves with vol, and the solver can return a vol that reproduces the price but is far from the one that made it; a price within rounding of the lower bound may be refused by one build and solved by the other.
 - **A study, not a trading tool**: European options under Black-Scholes with constant rate and volatility, no dividends, no early exercise, no rho. The checks show the module computes the model as the native library does, not that the model describes a market.
 

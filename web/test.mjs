@@ -45,7 +45,7 @@ const T = await createTestModule(); // the test module
 // 0. the module's shape
 const LIMITS = {
   spot: { min: 0.01, max: 1e6 }, strike: { min: 0.01, max: 1e6 }, expiry: { min: 1e-4, max: 100 }, vol: { min: 0.01, max: 1000 },
-  rate: { min: -10, max: 100 }, paths: { min: 2, max: 2e6 }, seed: { min: 0, max: 2 ** 53 - 1 },
+  rate: { min: -10, max: 100 }, paths: { min: 1000, max: 2e6 }, seed: { min: 0, max: 2 ** 53 - 1 }, reliableVolRootT: 1.25,
 };
 {
   for (const name of ['_price', '_impliedVol', '_monteCarlo', 'stackPointer', 'heapSize', 'uncheckedMonteCarlo'])
@@ -54,6 +54,8 @@ const LIMITS = {
   for (const name of ['price', 'impliedVol', 'monteCarlo']) check(typeof M[name] === 'function', `the module has no function ${name}`);
   check(JSON.stringify(M.limits) === JSON.stringify(LIMITS), `limits ${JSON.stringify(M.limits)}`);
   check(Object.isFrozen(M.limits) && Object.values(M.limits).every(Object.isFrozen), 'limits are not frozen');
+  const mc = M.monteCarlo({ type: 'call', spot: 100, strike: 100, expiry: 1, vol: 20, rate: 3, paths: 1000, seed: 1 });
+  check(Object.keys(mc).join() === 'ok,price,stdError,ciLow,ciHigh,closedForm,volRootT,reliable', `Monte Carlo fields ${Object.keys(mc)}`);
   const dist = `${ROOT}web/dist/`;
   const sums = readFileSync(`${dist}SHA256SUMS`, 'utf8').trim().split('\n').map((line) => line.split(/ +/));
   check(sums.map(([, f]) => f).join() === 'pricer.mjs,pricer.wasm,BUILD.txt', `SHA256SUMS lists ${sums.map(([, f]) => f)}`);
@@ -216,8 +218,9 @@ function compareImpliedVol(label, points) {
     const outcome = w.ok ? 'ok' : w.error, at = JSON.stringify(c);
     outcomes[outcome] = (outcomes[outcome] ?? 0) + 1;
     if (w.ok) maxIterations = Math.max(maxIterations, w.iterations);
-    // the two builds' lower bounds max(S - K e^{-rT}, 0) can differ by rounding, so a price within
-    // rounding of it may be refused by one and solved by the other
+    // Within 1e-12 of S + K e^{-rT} of the lower bound max(S - K e^{-rT}, 0) (a price at the
+    // in-the-money bound, or a tiny one far out of the money) the two builds' rounding decides: one
+    // may refuse it, or stop at 100 iterations, where the other solves it.
     const lower = Math.max(c.spot - discountedStrike(c), 0);
     const same = w.ok ? n[0] === 'ok' : n[0] === 'throw' && n[1] === NAMED[w.error];
     if (!same && Math.abs(c.price - lower) <= 1e-12 * (c.spot + discountedStrike(c))) atBound++;
@@ -235,7 +238,7 @@ function compareImpliedVol(label, points) {
   console.log(`implied vol, ${label} (${cases.length} call prices): outcomes ${JSON.stringify(outcomes)}, at most ${maxIterations} iterations; ` +
     `${well} well conditioned: worst round-trip error ${worstRoundTrip.toExponential(2)} vol points (tolerance 1e-6), ` +
     `worst difference from native ${worstNative.toExponential(2)} (tolerance 1e-7); ` +
-    `outcome as native's everywhere except ${atBound} prices within 1e-12 of the lower bound`);
+    `outcome as native's everywhere except ${atBound} prices within 1e-12 of S + K e^{-rT} of the lower bound`);
 }
 compareImpliedVol('grid', gridPoints);
 compareImpliedVol('random over the allowed ranges', wide);
@@ -283,6 +286,7 @@ compareImpliedVol('random near the money', nearTheMoney);
     worst = Math.max(worst, d);
     check(d <= 1e-12, `Monte Carlo against native ${JSON.stringify(r)}: ${JSON.stringify(w)}, native ${n.join(' ')}`);
     check(w.closedForm === M.price(without(without(r, 'paths'), 'seed')).price, `Monte Carlo closedForm ${JSON.stringify(r)}`);
+    check(w.volRootT === (r.vol / 100) * Math.sqrt(r.expiry) && w.reliable === (w.volRootT <= LIMITS.reliableVolRootT), `Monte Carlo volRootT and reliable ${JSON.stringify(w)}`);
   });
   console.log(`Monte Carlo against native: ${runs.length} seeded runs of 10^6 paths, ${identical} bit-identical in all four outputs, ` +
     `worst relative difference ${worst.toExponential(2)} (tolerance 1e-12)`);
@@ -315,16 +319,18 @@ compareImpliedVol('random near the money', nearTheMoney);
   // Standard error falls as 1/sqrt(paths): four times the paths, half the error (within 10%).
   const ratio = M.monteCarlo({ ...CASES[0], paths: 400000, seed: 7 }).stdError / M.monteCarlo({ ...CASES[0], paths: 100000, seed: 7 }).stdError;
   check(Math.abs(ratio - 0.5) <= 0.05, `standard error ratio ${ratio}`);
-  const series = [1e2, 1e3, 1e4, 1e5, 1e6].map((paths) => M.monteCarlo({ ...CASES[0], paths, seed: 1 }).stdError);
+  const series = [1e3, 1e4, 1e5, 1e6].map((paths) => M.monteCarlo({ ...CASES[0], paths, seed: 1 }).stdError);
   check(series.every((s, i) => i === 0 || s < series[i - 1]), `standard error does not fall with paths: ${series}`);
   console.log(`Monte Carlo against the closed form, 10^6 paths, seed 42: z = ${z.join(', ')} (bound 4); standard error ratio for 4x paths ${ratio.toFixed(4)} ` +
-    `(0.5 +/- 0.05); standard error at 10^2..10^6 paths, seed 1: ${series.map((s) => s.toPrecision(3)).join(', ')}; ` +
+    `(0.5 +/- 0.05); standard error at 10^3..10^6 paths, seed 1: ${series.map((s) => s.toPrecision(3)).join(', ')}; ` +
     `pinned result for seed 42 (${pinned.price}, standard error ${pinned.stdError}) bit for bit`);
 
   // As vol x sqrt(T) grows, the payoff's distribution gets so skewed that the sample misses the rare
   // paths that carry the price, and the standard error, estimated from the same sample, misses them
-  // too. Call, S = K = 100, r = 3%: coverage of the 95% interval over seeds 1-20 at 10^5 paths, and
-  // z at 10^6 paths, seed 42. Asserted only up to vol x sqrt(T) = 2.
+  // too (bench/mc_coverage.mjs measures it over 1,000 seeds). Call, S = K = 100, r = 3%: coverage of
+  // the 95% interval over seeds 1-20 at 10^5 paths, z at 10^6 paths, seed 42, and the result's
+  // reliable field, which must be true exactly at or below limits.reliableVolRootT. Coverage and z are
+  // asserted only where reliable is true.
   const rows2 = [[20, 1], [100, 1], [100, 4], [200, 4], [300, 5], [1000, 1]].map(([vol, expiry]) => {
     const c = { type: 'call', spot: 100, strike: 100, expiry, vol, rate: 3 };
     let covered = 0;
@@ -334,8 +340,10 @@ compareImpliedVol('random near the money', nearTheMoney);
     }
     const r = M.monteCarlo({ ...c, paths: 1e6, seed: 42 }), width = (vol / 100) * Math.sqrt(expiry);
     const score = (r.price - r.closedForm) / r.stdError;
-    if (width <= 2) check(Math.abs(score) <= 4 && covered >= 15, `Monte Carlo at vol x sqrt(T) = ${width}: z = ${score}, covered ${covered} of 20`);
-    return `${width.toFixed(1)}: ${covered}/20 covered, estimate ${r.price.toPrecision(5)} +/- ${r.stdError.toPrecision(3)} against ${r.closedForm.toPrecision(5)}, z = ${score.toFixed(2)}`;
+    check(r.volRootT === width && r.reliable === (width <= LIMITS.reliableVolRootT), `Monte Carlo at vol x sqrt(T) = ${width}: ${JSON.stringify(r)}`);
+    if (r.reliable) check(Math.abs(score) <= 4 && covered >= 15, `Monte Carlo at vol x sqrt(T) = ${width}: z = ${score}, covered ${covered} of 20`);
+    return `${width.toFixed(1)}: ${covered}/20 covered, estimate ${r.price.toPrecision(5)} +/- ${r.stdError.toPrecision(3)} against ${r.closedForm.toPrecision(5)}, ` +
+      `z = ${score.toFixed(2)}, reliable ${r.reliable}`;
   });
   console.log(`Monte Carlo as vol x sqrt(T) grows: ${rows2.join('; ')}`);
 
@@ -455,7 +463,8 @@ const isRefusal = (r, error) =>
       const iv = M.impliedVol({ price: p.price, spot, strike, expiry, rate });
       check(iv.ok ? Number.isFinite(iv.vol) : Object.keys(NAMED).includes(iv.error), `corner ${at}: implied vol ${JSON.stringify(iv)}`);
       const mc = M.monteCarlo({ ...c, paths: 1000, seed: 1 });
-      check(mc.ok && ['price', 'stdError', 'ciLow', 'ciHigh', 'closedForm'].every((k) => Number.isFinite(mc[k])), `corner ${at}: Monte Carlo ${JSON.stringify(mc)}`);
+      check(mc.ok && ['price', 'stdError', 'ciLow', 'ciHigh', 'closedForm', 'volRootT'].every((k) => Number.isFinite(mc[k])) && typeof mc.reliable === 'boolean',
+        `corner ${at}: Monte Carlo ${JSON.stringify(mc)}`);
       corners++;
     }
   console.log(`refusals: ${refused} refused calls, each with its named reason; each limit accepted with finite results; ` +
