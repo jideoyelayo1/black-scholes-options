@@ -1,17 +1,28 @@
-// Tests of the WebAssembly module (web/dist, from web/build.sh), with Node built-ins only.
+// Tests of the WebAssembly module (web/dist, from web/build.sh), with Node built-ins only. All but
+// section 6 run against the release module itself; section 6 needs the hooks that only the test
+// module (build/wasm-test/pricer_test.mjs: the release sources plus web/test_hooks.cpp) has.
+// 0. the module's shape: the public functions and limits, no raw functions, no test hooks;
 // 1. known answers: Hull's textbook values, put-call parity, the no-arbitrage bounds and limiting cases;
 // 2. agreement with the native build (web/driver.cpp, through the library directly) on the parameter
 //    grid of tests/grid.hpp, call and put, price and every Greek;
 // 3. implied volatility: round trips over the grid, agreement with the native solver, and its refusals;
 // 4. Monte Carlo: seeded results against the native build's, repeatability, the estimate against the
-//    closed form, and the standard error against the number of paths.
+//    closed form, and the standard error against the number of paths;
+// 5. every refusal by name: wrong types, missing and extra arguments, NaN, infinities, negatives,
+//    zero, values beyond the limits; the limits themselves accepted, with finite results at every
+//    corner of the allowed ranges;
+// 6. 100,000 refused calls of each kind on both modules, then the stack pointer and the memory size
+//    (test module) and the results (both) as before; internal errors forced through the test hook;
+// 7. the time of the largest Monte Carlo call the limits allow, in a fresh Node process.
 //
 // Usage, from the repository root: node web/test.mjs [path/to/web_driver]
+// TIME_LIMIT_SECONDS overrides section 7's bound (0.5 s; 2 s when CI is set).
 
 import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import createModule from './dist/pricer.mjs';
+import createTestModule from '../build/wasm-test/pricer_test.mjs';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const driver = process.argv[2] ?? `${ROOT}build/web_driver`;
@@ -22,7 +33,22 @@ const check = (ok, message) => {
   checks++;
   if (!ok && ++failures <= 30) console.error(`FAIL: ${message}`);
 };
-const M = await createModule();
+const M = await createModule(); // the release module
+const T = await createTestModule(); // the test module
+
+// 0. the module's shape
+const LIMITS = {
+  spot: { min: 0.01, max: 1e6 }, strike: { min: 0.01, max: 1e6 }, expiry: { min: 1e-4, max: 100 }, vol: { min: 0.01, max: 1000 },
+  rate: { min: -10, max: 100 }, paths: { min: 2, max: 2e6 }, seed: { min: 0, max: 2 ** 53 - 1 },
+};
+{
+  for (const name of ['_price', '_impliedVol', '_monteCarlo', 'stackPointer', 'heapSize', 'uncheckedMonteCarlo'])
+    check(!(name in M), `the release module must not have ${name}`);
+  for (const name of ['_price', '_impliedVol', '_monteCarlo']) check(!(name in T), `web/post.js did not remove ${name}`);
+  for (const name of ['price', 'impliedVol', 'monteCarlo']) check(typeof M[name] === 'function', `the module has no function ${name}`);
+  check(JSON.stringify(M.limits) === JSON.stringify(LIMITS), `limits ${JSON.stringify(M.limits)}`);
+  check(Object.isFrozen(M.limits) && Object.values(M.limits).every(Object.isFrozen), 'limits are not frozen');
+}
 
 // tests/grid.hpp, read rather than copied: K = 100, 7 spots, 5 expiries, 6 vols, 3 rates
 const grid = Object.fromEntries(
@@ -50,6 +76,7 @@ const fromBits = (h) => {
   return b.getFloat64(0);
 };
 const discountedStrike = (c) => c.strike * Math.exp((-c.rate / 100) * c.expiry);
+const without = (o, k) => Object.fromEntries(Object.entries(o).filter(([key]) => key !== k));
 const near = (got, want, rtol, atol) => Math.abs(got - want) <= rtol * Math.abs(want) + atol; // NaN is never near
 
 // 1. known answers
@@ -202,7 +229,7 @@ compareImpliedVol('grid', gridPoints);
     const d = Math.max(...FIELDS.map((k, j) => Math.abs(w[k] - n[j]) / Math.abs(n[j])));
     worst = Math.max(worst, d);
     check(d <= 1e-12, `Monte Carlo against native ${JSON.stringify(r)}: ${JSON.stringify(w)}, native ${n.join(' ')}`);
-    check(w.closedForm === M.price(r).price, `Monte Carlo closedForm ${JSON.stringify(r)}`);
+    check(w.closedForm === M.price(without(without(r, 'paths'), 'seed')).price, `Monte Carlo closedForm ${JSON.stringify(r)}`);
   });
   console.log(`Monte Carlo against native: ${runs.length} seeded runs of 10^6 paths, ${identical} bit-identical in all four outputs, ` +
     `worst relative difference ${worst.toExponential(2)} (tolerance 1e-12)`);
@@ -228,6 +255,162 @@ compareImpliedVol('grid', gridPoints);
   check(series.every((s, i) => i === 0 || s < series[i - 1]), `standard error does not fall with paths: ${series}`);
   console.log(`Monte Carlo against the closed form, 10^6 paths, seed 42: z = ${z.join(', ')} (bound 4); standard error ratio for 4x paths ${ratio.toFixed(4)} ` +
     `(0.5 +/- 0.05); standard error at 10^2..10^6 paths, seed 1: ${series.map((s) => s.toPrecision(3)).join(', ')}`);
+}
+
+// 5. refusals, by name
+const BASE = {
+  price: { type: 'call', spot: 100, strike: 100, expiry: 1, vol: 20, rate: 3 },
+  impliedVol: { price: 9.4, spot: 100, strike: 100, expiry: 1, rate: 3 },
+  monteCarlo: { type: 'call', spot: 100, strike: 100, expiry: 1, vol: 20, rate: 3, paths: 1000, seed: 1 },
+};
+const isRefusal = (r, error) =>
+  r !== null && typeof r === 'object' && Object.keys(r).join() === 'ok,error,message' && r.ok === false && r.error === error &&
+  typeof r.message === 'string' && r.message.length > 0;
+{
+  const NOT_NUMBERS = ['100', '', true, null, undefined, 100n, Symbol('x'), new Number(100), [100], {}, () => 100];
+  const NOT_FINITE = [NaN, Infinity, -Infinity];
+  let refused = 0;
+  const expect = (label, got, error) => {
+    refused++;
+    check(isRefusal(got, error), `${label}: ${String(JSON.stringify(got))}, expected a refusal ${error}`);
+  };
+  for (const [fn, base] of Object.entries(BASE)) {
+    const f = M[fn];
+    for (const [label, call] of [
+      ['()', () => f()],
+      ['(base, base)', () => f(base, base)],
+      ...[null, undefined, 5, 'x', true, 5n, [], [base], () => base].map((x) => [`(${typeof x} ${Array.isArray(x) ? 'array' : String(x)})`, () => f(x)]),
+    ])
+      expect(`${fn}${label}`, call(), 'expected_one_object');
+    expect(`${fn} with an extra argument`, f({ ...base, volatility: 20 }), 'unknown_argument');
+    expect(`${fn} with a misspelt argument`, f({ ...without(base, 'spot'), Spot: 100 }), 'unknown_argument');
+    for (const k of Object.keys(base)) {
+      expect(`${fn} without ${k}`, f(without(base, k)), 'missing_argument');
+      expect(`${fn} with ${k} inherited, not its own`, f(Object.assign(Object.create({ [k]: base[k] }), without(base, k))), 'missing_argument');
+      if (k === 'type') {
+        for (const t of ['CALL', 'Call', 'american', '', ' call', 1, null, undefined, new String('call'), ['call']])
+          expect(`${fn} with type ${typeof t} ${String(t)}`, f({ ...base, type: t }), 'unknown_type');
+        continue;
+      }
+      for (const x of NOT_NUMBERS) expect(`${fn} with ${k} ${typeof x}`, f({ ...base, [k]: x }), 'not_a_number');
+      for (const x of NOT_FINITE) expect(`${fn} with ${k} ${x}`, f({ ...base, [k]: x }), 'not_finite');
+      if (k === 'price') continue; // the solver checks the price: below
+      const { min, max } = LIMITS[k];
+      const below = k === 'rate' ? [-10.000001, -100, -1e300] : k === 'seed' ? [-1, -(2 ** 53)] : [0, -0, -1, min / 2, -1e300];
+      for (const x of [...below, max * 1.000001, max * 2, 1e300].filter((x) => !(k === 'paths' || k === 'seed') || Number.isInteger(x)))
+        expect(`${fn} with ${k} ${x}`, f({ ...base, [k]: x }), 'out_of_range');
+      if (k === 'paths' || k === 'seed') for (const x of [1.5, 2.000001, 1000.5]) expect(`${fn} with ${k} ${x}`, f({ ...base, [k]: x }), 'not_an_integer');
+      // the limits themselves are allowed, with finite results; for the solver, the call price of the
+      // same inputs at vol 20%, which it solves or refuses by name
+      for (const x of [min, max]) {
+        const args = { ...base, [k]: x };
+        if (fn === 'impliedVol') args.price = M.price({ ...without(args, 'price'), type: 'call', vol: 20 }).price;
+        const r = f(args);
+        check(fn === 'impliedVol' && !r.ok ? Object.keys(NAMED).includes(r.error)
+          : r.ok === true && Object.values(r).every((v) => typeof v === 'boolean' || Number.isFinite(v)), `${fn} with ${k} at its limit ${x}: ${JSON.stringify(r)}`);
+      }
+    }
+    // reading the argument runs page code: a throwing getter or proxy is refused, not propagated
+    const getter = Object.defineProperty({ ...without(base, 'spot') }, 'spot', { enumerable: true, get() { throw new Error('no'); } });
+    expect(`${fn} with a throwing getter`, f(getter), 'unreadable_argument');
+    const proxy = new Proxy(base, { ownKeys() { throw new Error('no'); } });
+    expect(`${fn} with a throwing proxy`, f(proxy), 'unreadable_argument');
+    // accepted: an object without a prototype, and arguments in any order
+    check(f(Object.assign(Object.create(null), base)).ok === true, `${fn} with a prototype-less object`);
+    check(JSON.stringify(f(Object.fromEntries(Object.entries(base).reverse()))) === JSON.stringify(f(base)), `${fn} with its arguments in another order`);
+  }
+  // the solver's refusals, by the price
+  for (const [label, price, error] of [['0', 0, 'below_lower_bound'], ['-1', -1, 'below_lower_bound'], ['-1e300', -1e300, 'below_lower_bound'],
+    ['the spot', 100, 'above_upper_bound'], ['1e300', 1e300, 'above_upper_bound']])
+    expect(`impliedVol with price ${label}`, M.impliedVol({ ...BASE.impliedVol, price }), error);
+
+  // every corner of the allowed ranges, call and put: finite prices and Greeks, a solver that solves
+  // or names its refusal, finite Monte Carlo results
+  let corners = 0;
+  const ends = (k) => [LIMITS[k].min, LIMITS[k].max];
+  for (const type of ['call', 'put']) for (const spot of ends('spot')) for (const strike of ends('strike')) for (const expiry of ends('expiry'))
+    for (const vol of ends('vol')) for (const rate of ends('rate')) {
+      const c = { type, spot, strike, expiry, vol, rate }, at = JSON.stringify(c);
+      const p = M.price(c);
+      check(p.ok && OUTPUTS.every((k) => Number.isFinite(p[k])), `corner ${at}: ${JSON.stringify(p)}`);
+      const iv = M.impliedVol({ price: p.price, spot, strike, expiry, rate });
+      check(iv.ok ? Number.isFinite(iv.vol) : Object.keys(NAMED).includes(iv.error), `corner ${at}: implied vol ${JSON.stringify(iv)}`);
+      const mc = M.monteCarlo({ ...c, paths: 1000, seed: 1 });
+      check(mc.ok && ['price', 'stdError', 'ciLow', 'ciHigh', 'closedForm'].every((k) => Number.isFinite(mc[k])), `corner ${at}: Monte Carlo ${JSON.stringify(mc)}`);
+      corners++;
+    }
+  console.log(`refusals: ${refused} refused calls, each with its named reason; each limit accepted with finite results; ` +
+    `${corners} corners of the allowed ranges (call and put): finite prices, Greeks and Monte Carlo results, implied vol solved or refused by name`);
+}
+
+// 6. 100,000 refused calls of each kind on both modules. Most are refused in JavaScript; the solver's
+// refusals and the forced internal errors are C++ exceptions thrown and caught inside WebAssembly.
+// On the test module the stack pointer and the memory size must not have changed; on both, the
+// results computed before must come out the same afterwards.
+{
+  const N = 100000;
+  const throwing = Object.defineProperty({ ...without(BASE.price, 'spot') }, 'spot', { enumerable: true, get() { throw new Error('no'); } });
+  const KINDS = [
+    ['expected_one_object', (X, i) => X.price(...[[], [null], [5], [BASE.price, BASE.price]][i % 4])],
+    ['unknown_argument', (X) => X.price({ ...BASE.price, volatility: 20 })],
+    ['missing_argument', (X) => X.monteCarlo(without(BASE.monteCarlo, 'seed'))],
+    ['not_a_number', (X, i) => X.price({ ...BASE.price, spot: ['100', null, undefined, 100n][i % 4] })],
+    ['not_finite', (X, i) => X.impliedVol({ ...BASE.impliedVol, price: [NaN, Infinity, -Infinity][i % 3] })],
+    ['out_of_range', (X, i) => X.monteCarlo({ ...BASE.monteCarlo, ...[{ spot: -1 }, { vol: 0 }, { paths: 2e6 + 1 }, { rate: -11 }][i % 4] })],
+    ['not_an_integer', (X) => X.monteCarlo({ ...BASE.monteCarlo, seed: 0.5 })],
+    ['unknown_type', (X) => X.price({ ...BASE.price, type: 'CALL' })],
+    ['unreadable_argument', (X) => X.price(throwing)],
+    ['below_lower_bound', (X) => X.impliedVol({ ...BASE.impliedVol, price: -1 })],
+    ['above_upper_bound', (X) => X.impliedVol({ ...BASE.impliedVol, price: 100 })],
+    ['vol_above_bracket', (X) => X.impliedVol({ price: 99.99999, spot: 100, strike: 100, expiry: 1, rate: 0 })],
+  ];
+  const reference = (X) => JSON.stringify([X.price(BASE.price), X.impliedVol(BASE.impliedVol), X.monteCarlo(BASE.monteCarlo)]);
+  const refuseMany = (X) => {
+    const counts = {};
+    for (const [error, call] of KINDS) {
+      let n = 0;
+      for (let i = 0; i < N; i++) n += isRefusal(call(X, i), error);
+      counts[error] = n;
+    }
+    return counts;
+  };
+  const before = [reference(M), reference(T)], sp = T.stackPointer(), heap = T.heapSize();
+  const t = refuseMany(T);
+  // the library throws inside a bound call: MCPrice refuses fewer than 2 paths
+  let internal = 0;
+  for (let i = 0; i < N; i++) internal += isRefusal(T.uncheckedMonteCarlo(true, 100, 100, 1, 20, 3, i % 3 === 0 ? 1 : -i, 1), 'internal_error');
+  t.internal_error = internal;
+  const spAfter = T.stackPointer(), heapAfter = T.heapSize();
+  const m = refuseMany(M);
+  for (const [name, counts] of [['test', t], ['release', m]])
+    for (const [error, n] of Object.entries(counts)) check(n === N, `${name} module: ${n} of ${N} ${error} refusals as expected`);
+  check(spAfter === sp, `the test module's stack pointer moved from ${sp} to ${spAfter}`);
+  check(heapAfter === heap, `the test module's memory grew from ${heap} to ${heapAfter} bytes`);
+  check(reference(M) === before[0] && reference(T) === before[1], 'results changed after the refused calls');
+  const forced = T.uncheckedMonteCarlo(true, 100, 100, 1, 20, 3, 1, 1);
+  console.log(`refusals in a loop: ${N.toLocaleString('en-GB')} each of ${KINDS.length} kinds on both modules, and ${N.toLocaleString('en-GB')} forced internal errors ` +
+    `on the test module (${JSON.stringify(forced)}); stack pointer ${sp} before, ${spAfter} after; memory ${heap} bytes before, ${heapAfter} after; ` +
+    'price, implied vol and Monte Carlo results unchanged on both');
+}
+
+// 7. the largest Monte Carlo call the limits allow, first in a fresh process (before the engine has
+// optimised the code) and then twice more
+{
+  const bound = Number(process.env.TIME_LIMIT_SECONDS ?? (process.env.CI ? 2 : 0.5));
+  const script = `const M = await (await import(${JSON.stringify(`${ROOT}web/dist/pricer.mjs`)})).default();
+const times = [];
+for (let seed = 1; seed <= 3; seed++) {
+  const t = performance.now();
+  const r = M.monteCarlo({ type: 'call', spot: 100, strike: 100, expiry: 1, vol: 20, rate: 3, paths: M.limits.paths.max, seed });
+  times.push((performance.now() - t) / 1000);
+  if (!r.ok) throw new Error(JSON.stringify(r));
+}
+console.log(JSON.stringify(times));`;
+  const r = spawnSync(process.execPath, ['--input-type=module', '-e', script], { encoding: 'utf8' });
+  const times = r.status === 0 ? JSON.parse(r.stdout) : [];
+  check(times.length === 3 && Math.max(...times) <= bound, `the largest Monte Carlo call: ${r.stdout}${r.stderr} (bound ${bound} s)`);
+  console.log(`timing: Monte Carlo at the limit of ${LIMITS.paths.max.toLocaleString('en-GB')} paths took ${times.map((s) => s.toFixed(3)).join(', ')} s ` +
+    `(first call in a fresh process, then two more; bound ${bound} s)`);
 }
 
 if (failures) {
