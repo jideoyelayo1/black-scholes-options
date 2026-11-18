@@ -4,7 +4,7 @@
 // rate in percent):
 //   bs call|put spot strike expiry vol rate        -> price delta gamma vega theta
 //   iv price spot strike expiry rate               -> ok vol iterations, or throw <exception type>
-//   mc call|put spot strike expiry vol rate paths seed -> price std_error ci_low ci_high
+//   mc call|put spot strike expiry vol rate paths seed -> price std_error ci_low ci_high in_the_money (decimal)
 // Numbers arrive as JavaScript writes them (String(x), the shortest text that reads back exactly).
 #include <cinttypes>
 #include <cstdio>
@@ -61,6 +61,7 @@ int main() {
             bits(r.std_error);
             bits(r.ci_low);
             bits(r.ci_high);
+            std::printf(" %llu", static_cast<unsigned long long>(r.in_the_money));
         } else {
             std::fprintf(stderr, "web_driver: cannot read a request starting %s\n", op);
             return 1;
