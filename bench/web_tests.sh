@@ -29,9 +29,11 @@ set +e
   echo "# commit $(git rev-parse --short HEAD)$(git status --porcelain --untracked-files=no -- . ':(exclude)bench/raw' | grep -q . && echo ' (dirty)' || true), $(sysctl -n machdep.cpu.brand_string 2>/dev/null || uname -m), $(uname -sr), $(c++ --version | head -n 1), cmake $(cmake --version | head -n 1 | cut -d ' ' -f 3), node $(node --version)"
   echo "# bench/web_tests.sh; paths are shown relative to the repository"
   echo "# load average before: $(sysctl -n vm.loadavg 2>/dev/null || cat /proc/loadavg)"
-  echo "# cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build && ctest --test-dir build --output-on-failure"
+  echo "# cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build --clean-first && ctest --test-dir build --output-on-failure"
   cmake -S . -B build -DCMAKE_BUILD_TYPE=Release >/dev/null
-  cmake --build build >/dev/null
+  # every native target rebuilt: make compares times to the second, so a header changed within the
+  # second of a build could otherwise leave a binary, web_driver once, built from the old header
+  cmake --build build --clean-first >/dev/null
   ctest --test-dir build --output-on-failure | sed -n '/Test #/p;/tests passed/p;/tests failed/,$p'
   for t in test_pricing test_mc test_normal; do echo "# ./build/$t"; ./build/$t; done
   echo "# web/build.sh"
