@@ -17,6 +17,7 @@ add_executable(options_demo main.cpp options.cpp NormalDistribution.cpp)
 add_executable(test_pricing tests/test_pricing.cpp)
 add_executable(test_mc tests/test_mc.cpp)
 add_executable(study bench/study.cpp)
+add_executable(web_driver web/driver.cpp)  # the native side of web/test.mjs
 
 enable_testing()
 add_test(NAME pricing COMMAND test_pricing)
