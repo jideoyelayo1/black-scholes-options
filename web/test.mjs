@@ -337,6 +337,20 @@ compareImpliedVol('random near the money', nearTheMoney);
     return `${width.toFixed(1)}: ${covered}/20 covered, estimate ${r.price.toPrecision(5)} +/- ${r.stdError.toPrecision(3)} against ${r.closedForm.toPrecision(5)}, z = ${score.toFixed(2)}`;
   });
   console.log(`Monte Carlo as vol x sqrt(T) grows: ${rows2.join('; ')}`);
+
+  // The standard error is computed in one pass, sum of squares less paths x mean^2 (MCPrice), which
+  // cancels when the payoff hardly varies. Deep in the money, the payoff is e^{-rT} (S_T - K), whose
+  // standard deviation is exactly S sqrt(e^{vol^2 T} - 1): the reported standard error against that,
+  // over 2,000,000 paths (whose own sampling error is about 0.05%). Asserted within 0.5% for vol 20%
+  // and T = 1; reported, not asserted, for vol 0.01% and T = 1e-4, where the payoff's standard
+  // deviation is 1e-6 of its mean.
+  const ratios = [[1e6, 1, 20], [100, 1, 20], [1e6, 1e-4, 0.01], [100, 1e-4, 0.01]].map(([spot, expiry, vol]) => {
+    const exact = (spot * Math.sqrt(Math.expm1((vol / 100) ** 2 * expiry))) / Math.sqrt(2e6);
+    const got = [1, 2].map((seed) => M.monteCarlo({ type: 'call', spot, strike: 0.01, expiry, vol, rate: 3, paths: 2e6, seed }).stdError / exact);
+    if (vol === 20) check(got.every((x) => Math.abs(x - 1) <= 0.005), `standard error against the exact one, S = ${spot}, vol ${vol}%: ${got}`);
+    return `S = ${spot}, K = 0.01, T = ${expiry}, vol ${vol}%: ${got.map((x) => x.toFixed(4)).join(' and ')}`;
+  });
+  console.log(`Monte Carlo standard error over the exact one, 2,000,000 paths, seeds 1 and 2: ${ratios.join('; ')}`);
 }
 
 // 5. refusals, by name
