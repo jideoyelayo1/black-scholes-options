@@ -7,6 +7,7 @@
 // 2. agreement with the native build (web/driver.cpp, through the library directly) on the parameter
 //    grid of tests/grid.hpp and on two seeded random samples (one over the whole allowed range, one
 //    near the money), call and put, price and every Greek; negative prices, by rounding, counted;
+//    and far-tail prices, relatively, against native and against 800-digit references;
 // 3. implied volatility: round trips over the same points, agreement with the native solver, and its
 //    refusals;
 // 4. Monte Carlo: seeded results against the native build's, repeatability, pinned results, the
@@ -201,6 +202,31 @@ const nearTheMoney = Array.from({ length: SAMPLE }, (_, i) => {
 compareClosedForm('grid', gridPoints.flatMap((g) => [{ type: 'call', ...g }, { type: 'put', ...g }]));
 compareClosedForm('random over the allowed ranges', wide);
 compareClosedForm('random near the money', nearTheMoney);
+
+// Far-tail prices: the six small prices of tests/test_normal.cpp, read from it with their 800-digit
+// references (tests/normal_reference.py), from the module against the references and against the
+// native driver, relatively. The scaled comparisons above cannot tell a native build with the old
+// cdf, (1 + erf(x / sqrt 2)) / 2, from the current one, since their differences are far below the
+// scale; these prices can, since the old cdf gets them wrong by up to all of their value.
+{
+  const num = (x) => x.split('/').map(Number).reduce((a, b) => a / b);
+  const tails = [...readFileSync(`${ROOT}tests/test_normal.cpp`, 'utf8').matchAll(/\{(true|false), ([^,{}]+), ([^,{}]+), ([^,{}]+), ([^,{}]+), ([^,{}]+), ([0-9.e+-]+)\}/g)]
+    .map((m) => ({ type: m[1] === 'true' ? 'call' : 'put', spot: num(m[2]), strike: num(m[3]), expiry: num(m[4]), vol: num(m[5]), rate: num(m[6]), want: Number(m[7]) }));
+  check(tails.length === 6, `far-tail prices read from tests/test_normal.cpp: ${tails.length}`);
+  const rows = native(tails.map((c) => `bs ${c.type} ${c.spot} ${c.strike} ${c.expiry} ${c.vol} ${c.rate}`));
+  let worstReference = 0, worstNative = 0;
+  tails.forEach((c, i) => {
+    const w = M.price(without(c, 'want')).price, n = fromBits(rows[i][1]);
+    const reference = Math.abs(w - c.want) / c.want, againstNative = Math.abs(w - n) / c.want;
+    worstReference = Math.max(worstReference, Number.isNaN(reference) ? Infinity : reference);
+    worstNative = Math.max(worstNative, Number.isNaN(againstNative) ? Infinity : againstNative);
+    check(reference <= 1e-9, `far-tail price ${JSON.stringify(c)}: WebAssembly ${w}, relative error ${reference}`);
+    check(againstNative <= 1e-9, `far-tail price ${JSON.stringify(c)}: WebAssembly ${w}, native ${n}`);
+  });
+  console.log(`far-tail prices (${tails.length}, from tests/test_normal.cpp, down to ${Math.min(...tails.map((c) => c.want)).toExponential(2)}): ` +
+    `worst relative error ${worstReference.toExponential(2)} against the 800-digit references, worst relative difference from native ` +
+    `${worstNative.toExponential(2)} (tolerance 1e-9 for both)`);
+}
 
 // 3. implied volatility. A grid point is well conditioned when vega >= 1e-7 x (S + K e^{-rT}) per vol
 // point: the price's rounding error, about 1e-16 of that scale, then moves the vol by under 1e-8
