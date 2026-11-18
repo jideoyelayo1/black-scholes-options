@@ -8,7 +8,8 @@
 // same C++ function without post.js's checks.
 // A call, S = K = 100, r = 3%, T = 1 year, so that vol x sqrt(T) is vol / 100; seeds 1 to 1000 at
 // each path count (a longer run with the same seed extends the shorter one's stream, as in the study).
-// The results depend only on the module, not on the machine. About 20 minutes on an Apple M1 Pro.
+// The results depend only on the module, not on the machine. 19 to 26 minutes on an Apple M1 Pro
+// under heavy load from another job.
 //
 // Usage, from the repository root: node bench/mc_coverage.mjs > bench/raw/mc_coverage.txt
 import { readFileSync } from 'node:fs';

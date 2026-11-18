@@ -41,8 +41,8 @@
   // payoff is so skewed that the sample misses the rare paths that carry its price, and the standard
   // error, estimated from the same sample, misses them too. bench/mc_coverage.mjs measured the
   // interval's coverage over 1,000 seeds at 100 to 2,000,000 paths; this is the largest vol x sqrt(T)
-  // it tried at which coverage was consistent with 95% at every path count, and at every smaller one
-  // (bench/raw/mc_coverage.txt): at 1.5 it was 0.923 at 1,000 paths. Measured on a call: a put's
+  // it tried at which coverage was consistent with 95% at every allowed path count (1,000 and up),
+  // and at every smaller one (bench/raw/mc_coverage.txt): at 1.5 it was 0.923 at 1,000 paths. Measured on a call: a put's
   // payoff is bounded by the strike, so the field is cautious for puts.
   const RELIABLE_VOL_ROOT_T = 1.25;
 
