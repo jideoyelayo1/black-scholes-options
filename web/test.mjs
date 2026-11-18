@@ -17,7 +17,8 @@
 //    corner of the allowed ranges;
 // 6. 100,000 refused calls of each kind on both modules, then the stack pointer and the memory size
 //    (test module) and the results (both) as before; internal errors forced through the test hook;
-// 7. the time of the largest Monte Carlo call the limits allow, in a fresh Node process.
+// 7. the time of the largest Monte Carlo call the limits allow, for the usual option and the slowest
+//    case found, each in a fresh Node process.
 //
 // Usage, from the repository root: node web/test.mjs [path/to/web_driver]
 // TIME_LIMIT_SECONDS overrides section 7's bound (0.5 s; 2 s when CI is set).
@@ -516,24 +517,32 @@ const isRefusal = (r, error) =>
     'price, implied vol and Monte Carlo results unchanged on both');
 }
 
-// 7. the largest Monte Carlo call the limits allow, first in a fresh process (before the engine has
-// optimised the code) and then twice more
+// 7. the largest Monte Carlo call the limits allow, each case first in a fresh process (before the
+// engine has optimised the code) and then twice more: the usual option, and the slowest case found,
+// where most terminal spots are subnormal numbers, which the exponential is slow to produce
 {
   const bound = Number(process.env.TIME_LIMIT_SECONDS ?? (process.env.CI ? 2 : 0.5));
-  const script = `const M = await (await import(${JSON.stringify(`${ROOT}web/dist/pricer.mjs`)})).default();
+  const CASES = [
+    ['S = K = 100, T = 1, vol 20%, r 3%', { spot: 100, strike: 100, expiry: 1, vol: 20, rate: 3 }],
+    ['S = K = 0.01, T = 100, vol 375%, r -10%', { spot: 0.01, strike: 0.01, expiry: 100, vol: 375, rate: -10 }],
+  ];
+  const lines = CASES.map(([label, c]) => {
+    const script = `const M = await (await import(${JSON.stringify(`${ROOT}web/dist/pricer.mjs`)})).default();
 const times = [];
 for (let seed = 1; seed <= 3; seed++) {
   const t = performance.now();
-  const r = M.monteCarlo({ type: 'call', spot: 100, strike: 100, expiry: 1, vol: 20, rate: 3, paths: M.limits.paths.max, seed });
+  const r = M.monteCarlo({ type: 'call', ...${JSON.stringify(c)}, paths: M.limits.paths.max, seed });
   times.push((performance.now() - t) / 1000);
   if (!r.ok) throw new Error(JSON.stringify(r));
 }
 console.log(JSON.stringify(times));`;
-  const r = spawnSync(process.execPath, ['--input-type=module', '-e', script], { encoding: 'utf8' });
-  const times = r.status === 0 ? JSON.parse(r.stdout) : [];
-  check(times.length === 3 && Math.max(...times) <= bound, `the largest Monte Carlo call: ${r.stdout}${r.stderr} (bound ${bound} s)`);
-  console.log(`timing: Monte Carlo at the limit of ${LIMITS.paths.max.toLocaleString('en-GB')} paths took ${times.map((s) => s.toFixed(3)).join(', ')} s ` +
-    `(first call in a fresh process, then two more; bound ${bound} s)`);
+    const r = spawnSync(process.execPath, ['--input-type=module', '-e', script], { encoding: 'utf8' });
+    const times = r.status === 0 ? JSON.parse(r.stdout) : [];
+    check(times.length === 3 && Math.max(...times) <= bound, `the largest Monte Carlo call, ${label}: ${r.stdout}${r.stderr} (bound ${bound} s)`);
+    return `${label}: ${times.map((s) => s.toFixed(3)).join(', ')} s`;
+  });
+  console.log(`timing: Monte Carlo at the limit of ${LIMITS.paths.max.toLocaleString('en-GB')} paths, first call in a fresh process, then two more: ` +
+    `${lines.join('; ')} (bound ${bound} s)`);
 }
 
 if (failures) {

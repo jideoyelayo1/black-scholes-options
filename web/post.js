@@ -19,9 +19,10 @@
   // negative spots, strikes, vols and expiries are refused. The top vol is the implied-vol solver's
   // bracket. Rates are floored at -10% so that e^{-rT}, which multiplies the strike, stays below
   // e^{10} at the longest expiry: the price's rounding error is about 1e-16 of S + K e^{-rT}.
-  // Paths bound the work: Monte Carlo's time is proportional to them, and 2,000,000 paths took under
-  // 0.2 s on an Apple M1 Pro (web/test.mjs times the largest call), so a laptop several times slower
-  // stays near a second. Seeds are whole numbers a JavaScript number holds exactly.
+  // Paths bound the work: Monte Carlo's time is proportional to them. web/test.mjs times the largest
+  // call for the usual option and for the slowest case found (terminal spots so small that the
+  // exponential returns subnormal numbers, slowly); the README gives the times and the reasoning.
+  // Seeds are whole numbers a JavaScript number holds exactly.
   const LIMITS = {
     spot: [0.01, 1e6],
     strike: [0.01, 1e6],

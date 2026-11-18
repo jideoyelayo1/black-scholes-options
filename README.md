@@ -149,7 +149,7 @@ Nothing is thrown from C++ into JavaScript, since such an exception would leave 
 | `expiry` | 0.0001 to 100 years | positive: at zero the library's Greeks are NaN at the strike |
 | `vol` | 0.01% to 1000% | positive; 1000% is the top of the implied-vol solver's bracket |
 | `rate` | -10% to 100% | negative rates multiply the strike by e^{-rT}, and the price's rounding error grows with S + K e^{-rT}; the floor keeps e^{-rT} under e^{10} |
-| `paths` | 2 to 2,000,000 | 2 is the library's minimum; the top bounds the work, which is proportional to paths: the largest call took 0.059 s on an Apple M1 Pro under a load average of 41 (first call in a fresh Node process), so a laptop several times slower stays well under a second |
+| `paths` | 2 to 2,000,000 | 2 is the library's minimum; the top bounds the work, which is proportional to paths. The largest call took 0.174 to 0.181 s for S = K = 100, T = 1, vol 20%, and 0.270 to 0.330 s in the slowest case found (S = K = 0.01, T = 100, vol 375%, r -10%: most terminal spots are subnormal numbers, which the exponential is slow to produce), on an Apple M1 Pro under a load average near 100 (first call in a fresh Node process, then two more), so a laptop a few times slower stays near a second |
 | `seed` | 0 to 2^53 - 1 | whole numbers a JavaScript number holds exactly |
 
 The closed form and the solver are bounded work (the solver stops after 100 iterations), so `paths` is the only cap on time. No call keeps memory: over the 1.3 million refused calls of the tests the module's memory stayed at 16,908,288 bytes.
