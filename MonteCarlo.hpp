@@ -11,6 +11,7 @@ struct MCResult {
     double std_error;  // sample standard deviation of the discounted payoff / sqrt(paths)
     double ci_low;     // 95% confidence interval: price -/+ 1.96 * std_error
     double ci_high;
+    std::uint64_t in_the_money;  // paths that finished in the money (a positive payoff)
 };
 
 inline MCResult MCPrice(bool call, double spot, double time, double strike, double expiry, double vol, double rate,
@@ -37,13 +38,16 @@ inline MCResult MCPrice(bool call, double spot, double time, double strike, doub
     // different paths for one seed; write the transform by hand if runs must match across standard libraries.
     std::normal_distribution<double> normal;
     double sum = 0, sum_sq = 0;
+    std::uint64_t in_the_money = 0;  // counted on the payoff before discounting, which cannot underflow it
     for (std::uint64_t i = 0; i < paths; ++i) {
         const double terminal = spot * exp(drift + diffusion * normal(rng));
-        const double payoff = discount * fmax(call ? terminal - strike : strike - terminal, 0.0);
+        const double intrinsic = fmax(call ? terminal - strike : strike - terminal, 0.0);
+        in_the_money += intrinsic > 0;
+        const double payoff = discount * intrinsic;
         sum += payoff;
         sum_sq += payoff * payoff;
     }
     const double n = static_cast<double>(paths), mean = sum / n;
     const double std_error = sqrt(fmax(sum_sq - n * mean * mean, 0.0) / (n - 1) / n);
-    return {mean, std_error, mean - 1.959963984540054 * std_error, mean + 1.959963984540054 * std_error};
+    return {mean, std_error, mean - 1.959963984540054 * std_error, mean + 1.959963984540054 * std_error, in_the_money};
 }

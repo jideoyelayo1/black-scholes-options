@@ -14,8 +14,10 @@ The tests and the study in `bench/` check each method against an independent one
 - **MonteCarlo.hpp**: `MCPrice`, the Monte Carlo price with its standard error and 95% interval.
 - **NormalDistribution.hpp** / **NormalDistribution.cpp**: normal pdf and cdf.
 - **main.cpp**: a minimal program that builds an `Option`.
-- **tests/**: `test_pricing.cpp` (prices, Greeks, `Option`, solver), `test_mc.cpp` (Monte Carlo) and `grid.hpp` (the parameter grid).
-- **bench/**: the study (`study.cpp`), the scripts that run it and draw the figure, and the committed outputs.
+- **tests/**: `test_pricing.cpp` (prices, Greeks, `Option`, solver), `test_mc.cpp` (Monte Carlo), `test_normal.cpp` (the normal cdf and small prices against `normal_reference.py`'s 800-digit references) and `grid.hpp` (the parameter grid).
+- **bench/**: the study (`study.cpp`), the scripts that run it and draw the figure, and the committed outputs; `web_tests.sh`, which records the native and WebAssembly tests in `raw/web_tests.txt`; `check_web_tests.sh`, which checks that a failed run leaves that record as it was; and `mc_coverage.mjs`, which measures how often Monte Carlo's 95% interval covers the closed form (`raw/mc_coverage.txt`).
+- **web/**: the WebAssembly build (below): `pricer_wasm.cpp` (the binding), `post.js` (argument checks), `build.sh`, `test.mjs`, `driver.cpp` (the native side of the tests) and `test_hooks.cpp` (test module only).
+- **.github/workflows/wasm.yml**: native and WebAssembly builds and tests on pull requests and on `main`; releases from `v*` tags.
 
 ## Conventions
 
@@ -49,7 +51,7 @@ bench/run.sh 100      # the same with 100 seeds per path count instead of 1000
 Results (details, tolerances and method in [bench/RESULTS.md](bench/RESULTS.md)):
 
 - **Closed form.** Put-call parity holds to 2.8e-14 over a 630-point grid of spot, expiry, vol and rate; every Greek agrees with a finite difference of the price within its stated tolerance; reference values from Hull match.
-- **Implied vol.** Every grid point with vega >= 1e-5 per vol point round-trips to within 2.9e-10 vol points, in at most 19 iterations (median 5). Below that vega the price barely moves with vol: prices that round to a no-arbitrage bound are rejected, and 39 of the other 69 solve to a vol that reproduces the price but misses the input by more than 1e-6 points.
+- **Implied vol.** Every grid point with vega >= 1e-5 per vol point round-trips to within 2.4e-10 vol points, in at most 37 iterations (median 5). Below that vega the price barely moves with vol: 112 prices that round to a no-arbitrage bound are rejected, 26 deep out-of-the-money prices (1e-303 to 1e-44) do not converge in 100 iterations, and 29 of the other 88 solve to a vol that reproduces the price but misses the input by more than 1e-6 points.
 - **Monte Carlo.** For S = K = 100, vol 20%, r 3%, T = 1 (closed form 9.4134), over 1000 seeds at each of 11 path counts from 10^2 to 10^7: RMS error falls with slope -0.5026 +/- 0.0008 on log-log axes, and the 95% interval covers the closed form in 94.65% of 11,000 runs.
 
 ![Monte Carlo estimate with its 95% interval, and error against paths](bench/mc_convergence.png)
@@ -71,6 +73,151 @@ MCResult mc = MCPrice(true, 100, 0, 100, 1, 20, 3, 1000000, 42);  // mc.price, m
 ## Limits
 
 European options under constant rate and volatility only: no dividends, early exercise, stochastic volatility, transaction costs or calibration to market data. The checks show internal consistency, not that the model describes a market. The solver handles calls; a put's implied vol is that of the call with the same strike and expiry, by parity. Seeded Monte Carlo results reproduce with the same standard library; `std::normal_distribution` differs between libc++ and libstdc++.
+
+## WebAssembly (`web/`)
+
+The library compiled to WebAssembly for a web page: the closed-form price and Greeks, the implied-vol solver and the Monte Carlo pricer, as three stateless functions that take one object of numbers and return one object of numbers. Nothing else is exposed, and nothing is added to the library.
+
+Needs [emsdk](https://github.com/emscripten-core/emsdk) with Emscripten 6.0.13 (CI checks out emsdk at commit `35659964bc2762fffec0d257997fb61475f765b7`, its tag `6.0.13`), CMake and Node. From the repository root:
+
+```sh
+source path/to/emsdk/emsdk_env.sh
+web/build.sh                          # web/dist/pricer.mjs, pricer.wasm, BUILD.txt, SHA256SUMS (and the test module)
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build --clean-first   # includes web_driver, the native side of the tests
+node web/test.mjs build/web_driver
+bench/web_tests.sh                    # all of the above, recorded in bench/raw/web_tests.txt
+bench/check_web_tests.sh              # a failed run of it leaves that record as it was
+node bench/mc_coverage.mjs > bench/raw/mc_coverage.txt   # Monte Carlo's coverage, 19 to 26 minutes here
+```
+
+`web/build.sh` calls `em++` directly: C++17, `-O2`, `-fexceptions`, single-threaded, no filesystem, `-sMODULARIZE -sEXPORT_ES6 -sENVIRONMENT=web,node -sALLOW_MEMORY_GROWTH`. With Emscripten 6.0.13 the loader is 36,780 bytes and the `.wasm` 50,646 (10,309 and 24,868 gzipped; `bench/raw/web_tests.txt`). `web/dist/` is not committed: a `v*` tag on a commit on `main` makes CI attach `pricer.mjs`, `pricer.wasm`, `BUILD.txt` (Emscripten version, source commit, command, sizes) and `SHA256SUMS` to a GitHub Release.
+
+### API
+
+`pricer.mjs` exports a factory; the module it resolves to has three functions and `limits`. Call the factory with no options, as below: Emscripten runs options such as `onRuntimeInitialized` or `preRun` before `web/post.js` has removed the raw, unchecked functions, so page code passed that way could keep them and call them with anything. The checks guard against a page's mistakes, not against the page itself. Units are the library's: `vol` and `rate` in percent (20 means 20%), `expiry` the time to expiry in years (the valuation time is 0), vega per vol point, theta per calendar day. Theta is the change in value as one calendar day passes: minus the derivative with respect to the time to expiry, divided by 365, so usually negative.
+
+| Function | Arguments (all required, no others) | Result |
+|---|---|---|
+| `price` | `type` (`'call'` or `'put'`), `spot`, `strike`, `expiry`, `vol`, `rate` | `{ok: true, price, delta, gamma, vega, theta}` |
+| `impliedVol` | `price` (of a call), `spot`, `strike`, `expiry`, `rate` | `{ok: true, vol, iterations}` |
+| `monteCarlo` | `type`, `spot`, `strike`, `expiry`, `vol`, `rate`, `paths`, `seed` | `{ok: true, price, stdError, ciLow, ciHigh, closedForm, inTheMoneyPaths, volRootT}` |
+
+`price` is never negative (a price below zero by rounding is returned as 0). `ciLow` and `ciHigh` are the 95% interval, `price` -/+ 1.96 `stdError`; `closedForm` is `price()`'s price for the same inputs. `inTheMoneyPaths` is how many of the simulated paths finished in the money (a positive payoff), counted in the loop that prices them, and `volRootT` is vol x sqrt(T), with vol as a fraction (0.2 for 20% over one year): the two quantities against which the README tabulates how often the 95% interval covers the closed form (below). `limits` is a frozen object of `{min, max}` ranges only, one per argument, `{spot: {min, max}, ...}` (below), so that a page can iterate over it.
+
+```js
+import createPricer from './pricer.mjs';   // pricer.wasm is fetched from next to it
+const pricer = await createPricer();
+
+pricer.price({ type: 'call', spot: 100, strike: 100, expiry: 1, vol: 20, rate: 3 });
+// {ok: true, price: 9.413403383853016, delta: 0.5987063256829237, gamma: 0.01933340584014246,
+//  vega: 0.38666811680284924, theta: -0.014740816557703214}
+pricer.impliedVol({ price: 9.413403383853016, spot: 100, strike: 100, expiry: 1, rate: 3 });
+// {ok: true, vol: 19.999999999999993, iterations: 4}
+pricer.monteCarlo({ type: 'call', spot: 100, strike: 100, expiry: 1, vol: 20, rate: 3, paths: 1000000, seed: 42 });
+// {ok: true, price: 9.434143734972519, stdError: 0.014141785963166932, ciLow: 9.406426343807638,
+//  ciHigh: 9.4618611261374, closedForm: 9.413403383853016, inTheMoneyPaths: 520463, volRootT: 0.2}
+pricer.impliedVol({ price: 2, spot: 120, strike: 100, expiry: 1, rate: 3 });
+// {ok: false, error: 'below_lower_bound', message: 'impliedVol: a call price must be above max(S - K exp(-rT), 0) = 22.95544665; got 2'}
+```
+
+### Refusals
+
+No function throws. A call that cannot be answered returns `{ok: false, error, message}`: `error` is one of the names below, `message` is for people and names the argument; it echoes at most 20 characters of a caller's string and only the type of anything else. Arguments are checked in JavaScript (`web/post.js`) before anything enters WebAssembly, and nothing is coerced: `'100'`, `true`, `null`, `100n` and `new Number(100)` are not numbers.
+
+| `error` | When |
+|---|---|
+| `expected_one_object` | not exactly one argument, or it is not an object (null, an array, a number, a string) |
+| `unknown_argument` | a field that is not one of the function's (a misspelling such as `volatility`), non-enumerable and symbol-keyed ones included |
+| `missing_argument` | a field is missing (inherited fields do not count) |
+| `unreadable_argument` | reading the object threw (a throwing getter or proxy, a revoked proxy) |
+| `unknown_type` | `type` is not exactly `'call'` or `'put'` |
+| `not_a_number` | a field is not of type number |
+| `not_finite` | NaN or an infinity |
+| `not_an_integer` | `paths` or `seed` is not a whole number |
+| `out_of_range` | outside the limits below, zero and negative values included |
+| `below_lower_bound` | `impliedVol`: the price is at or below max(S - K e^{-rT}, 0), so no vol gives it |
+| `above_upper_bound` | `impliedVol`: the price is at or above the spot |
+| `vol_above_bracket` | `impliedVol`: the vol is above 1000%, the top of the solver's bracket |
+| `not_converged` | `impliedVol`: no convergence in 100 iterations, for a call price exponentially small beside the spot (in the tests, at most 3.8e-33 of it): the solver keeps any Newton step that halves the price error, and from above Newton cuts such an error only by about a factor e per step, so its bisection fallback never takes over (26 of the grid's 630 call prices; 700 and 1,055 of the samples' 20,000) |
+| `internal_error` | a C++ exception, caught inside WebAssembly (none is reachable through the checked functions; the tests force them through a hook) |
+
+Nothing is thrown from C++ into JavaScript, since such an exception would leave WebAssembly's stack pointer unrestored: every bound function catches C++ exceptions and returns a refusal. `web/test.mjs` makes 100,000 refused calls of each kind on the release module and on a test module (`build/wasm-test/`, never released, with `stackPointer()`, `heapSize()` and an unchecked Monte Carlo call), and checks that the stack pointer and the memory size have not changed and that results are bit for bit as before.
+
+### Limits
+
+| Argument | Allowed (inclusive) | Why |
+|---|---|---|
+| `spot`, `strike` | 0.01 to 1,000,000 | positive; every output is finite at every corner of the allowed ranges (64 corners, call and put, checked) |
+| `expiry` | 0.0001 to 100 years | positive: at zero the library's Greeks are NaN at the strike |
+| `vol` | 0.01% to 1000% | positive; 1000% is the top of the implied-vol solver's bracket |
+| `rate` | -10% to 100% | negative rates multiply the strike by e^{-rT}, and the price's rounding error grows with S + K e^{-rT}; the floor keeps e^{-rT} under e^{10} |
+| `paths` | 1,000 to 2,000,000 | 1,000 is a floor, not the point from which the interval covers the closed form 95% of the time: at 100 paths the at-the-money call's interval covered 93.9%, 92.9% and 89.3% at vol x sqrt(T) 0.25, 0.5 and 1 (10,000 seeds, `bench/raw/mc_coverage.txt`; the library's own minimum is 2); the top bounds the work, which is proportional to paths. The largest call took 0.049 to 0.063 s for S = K = 100, T = 1, vol 20%, and 0.099 to 0.111 s in the slowest case found (S = K = 0.01, T = 100, vol 375%, r -10%: most terminal spots are subnormal numbers, which the exponential is slow to produce), on an Apple M1 Pro under a load average near 90 (first call in a fresh Node process, then two more; `bench/raw/web_tests.txt`; under a load average near 170 an earlier run took up to 0.329 s), so a laptop a few times slower stays near a second |
+| `seed` | 0 to 2^53 - 1 | whole numbers a JavaScript number holds exactly |
+
+The closed form and the solver are bounded work (the solver stops after 100 iterations), so `paths` is the only cap on time. No call keeps memory: over the 1.3 million refused calls of the tests the module's memory stayed at 16,908,288 bytes.
+
+One corner of these limits gives a poor standard error. `MCPrice` computes it in one pass, as the sum of squares less paths times the mean squared, which cancels when the payoff hardly varies. Deep in the money with vol 0.01% and expiry 1e-4 years, the payoff's standard deviation is 1e-6 of its mean, and at 2,000,000 paths the reported standard error was 8.6% low to 1.9% high against the exact one (S = 100 and 1,000,000, K = 0.01, seeds 1 and 2), against within 0.02% at vol 20% and T = 1 (`bench/raw/web_tests.txt`). The estimator is the library's and is left as it is: changing it would change every seeded result, the study's included.
+
+### What is and is not guaranteed
+
+- **Agreement with the native build** (`web/test.mjs` against `web/driver.cpp`, which calls the library directly; macOS arm64, Apple clang, libc++). Not bit for bit in general: the two builds use different maths libraries and the native arm64 build fuses multiplies and adds. Over the grid of `tests/grid.hpp` and two seeded samples of 20,000 points each (one over all the limits, one near the money), every price and Greek agrees within 1e-12 of the size of the terms its formula combines (S + K e^{-rT} for the price); the largest difference was 2.15e-14 of that, and 6,735 to 19,225 of each 20,000 were bit-identical. Implied vols agree within 1e-7 vol points wherever the price determines the vol (largest 1.60e-9). Seeded Monte Carlo uses the same random numbers in both builds (libc++'s `std::normal_distribution` on `std::mt19937_64`): 7 of 20 runs of 10^6 paths were bit-identical and the largest relative difference was 1.31e-14.
+- **Repeatable in WebAssembly.** The same inputs and seed give the same bits on every call; one seeded Monte Carlo result is pinned bit for bit in `web/test.mjs`, which CI runs on another machine.
+- **Monte Carlo is an estimate**, with its own estimated standard error, and its 95% interval is not a guarantee. When few paths finish in the money, or vol x sqrt(T) is large, the payoff is so skewed that the sample misses the rare paths that carry the price, and the standard error, estimated from the same sample, misses them too. Each result reports both quantities, `inTheMoneyPaths` and `volRootT`, so that a caller can judge. `bench/mc_coverage.mjs` measured how often the interval covers the closed form, through the module, for calls and puts with S = 100, T = 1, r 3%, strikes 50 to 200, vol x sqrt(T) 0.2 to 1.5 and 1,000, 10,000 and 100,000 paths, with seeds 1 to 5,000, 2,000 and 2,000 at those path counts and 10,000 for the at-the-money table (`bench/raw/mc_coverage.txt`, where every coverage has its 95% interval and run count). What it found, as guidance:
+  - **Paths in the money matter most.** With none, the estimate is 0 with a standard error of 0 and the interval never covers. Every option whose runs typically had fewer than 100 paths in the money, at each path count measured:
+
+| Option (S = 100, T = 1, r 3%) | Paths | Paths in the money (median) | Coverage (95% interval, runs) |
+|---|---:|---:|---|
+| call, strike 200, vol x sqrt(T) 0.2 | 1,000 | 0 | 25.8% (24.6% to 27.0%, 5,000) |
+| put, strike 50, vol x sqrt(T) 0.2 | 1,000 | 0 | 18.5% (17.4% to 19.6%, 5,000) |
+| put, strike 50, vol x sqrt(T) 0.2 | 10,000 | 2 | 70.0% (68.0% to 72.0%, 2,000) |
+| call, strike 200, vol x sqrt(T) 0.2 | 10,000 | 3 | 75.3% (73.4% to 77.2%, 2,000) |
+| put, strike 60, vol x sqrt(T) 0.2 | 1,000 | 4 | 81.9% (80.8% to 82.9%, 5,000) |
+| call, strike 160, vol x sqrt(T) 0.2 | 1,000 | 11 | 88.4% (87.5% to 89.3%, 5,000) |
+| put, strike 50, vol x sqrt(T) 0.2 | 100,000 | 22 | 91.8% (90.5% to 92.9%, 2,000) |
+| call, strike 200, vol x sqrt(T) 0.2 | 100,000 | 32 | 92.1% (90.8% to 93.2%, 2,000) |
+| put, strike 60, vol x sqrt(T) 0.2 | 10,000 | 46 | 92.8% (91.6% to 93.9%, 2,000) |
+| call, strike 200, vol x sqrt(T) 0.5 | 1,000 | 58 | 93.6% (92.9% to 94.3%, 5,000) |
+
+  - **With at least 100 in the money, coverage was about 94 to 95%, not 95%**, at every path count tested (the lowest pooled figure, 93.4%, at vol x sqrt(T) 1.5 and 1,000 paths). Pooled over all the options' runs with at least 100 paths in the money, by vol x sqrt(T):
+
+| Paths | 0.2 | 0.5 | 0.75 | 1 | 1.25 | 1.5 | all |
+|---|---|---|---|---|---|---|---|
+| 1,000 | 94.9% | 95.0% | 95.0% | 94.7% | 94.3% | 93.4% | 94.5% |
+| 10,000 | 94.5% | 94.5% | 94.5% | 94.5% | 94.5% | 94.1% | 94.4% |
+| 100,000 | 95.0% | 95.1% | 95.1% | 95.0% | 95.0% | 94.9% | 95.0% |
+
+    Options whose runs typically had at least 100 in the money and vol x sqrt(T) at most 1 covered 93.6% to 95.4% at 1,000 paths; 93.8% to 95.4% at 10,000 paths; 93.4% to 95.6% at 100,000 paths.
+  - **Large vol x sqrt(T) lowers coverage for calls at small path counts**, whose payoff is unbounded; puts, bounded by the strike, held up. At the money, 10,000 seeds at 1,000 paths:
+
+| vol x sqrt(T) | call | put |
+|---|---|---|
+| 0.25 | 94.7% (498 in the money) | 95.1% (502) |
+| 0.5 | 94.7% (425 in the money) | 95.1% (575) |
+| 0.75 | 94.6% (369 in the money) | 95.0% (631) |
+| 1 | 94.2% (319 in the money) | 94.8% (681) |
+| 1.25 | 93.5% (274 in the money) | 94.7% (726) |
+| 1.5 | 91.7% (233 in the money) | 94.6% (767) |
+
+  - **Binned by the observed count**, pooled over everything (a run with fewer paths in the money than usual also tends to underestimate, so a bin mixes options):
+
+| inTheMoneyPaths | 1,000 paths | 10,000 paths | 100,000 paths |
+|---|---|---|---|
+| 0 | 0.0% (n 7,650) | 0.0% (n 304) | - |
+| 1-9 | 83.3% (n 9,098) | 78.6% (n 3,692) | 33.3% (n 3) |
+| 10-29 | 96.9% (n 3,252) | 68.8% (n 16) | 89.1% (n 2,587) |
+| 30-99 | 89.4% (n 7,242) | 91.3% (n 2,461) | 97.2% (n 1,410) |
+| 100-299 | 93.9% (n 107,251) | 97.6% (n 1,527) | - |
+| 300-999 | 94.8% (n 277,857) | 93.1% (n 2,184) | 94.0% (n 2,023) |
+| 1000-2999 | 94.8% (n 7,650) | 94.4% (n 43,816) | 94.1% (n 1,977) |
+| 3000-9999 | - | 94.5% (n 113,696) | 95.2% (n 2,000) |
+| 10000-29999 | - | 93.1% (n 304) | 94.9% (n 44,000) |
+| 30000-99999 | - | - | 95.1% (n 114,000) |
+
+  No simple rule in these two quantities separates good coverage from bad sharply. As guidance only: read the interval as roughly 95% when `inTheMoneyPaths` is at least 100 and `volRootT` at most 1 (pooled coverage 94.5% to 95.1% there, single options 93.4% to 95.6%); treat it as unreliable when `inTheMoneyPaths` is below about 30, and as optimistic for a call when `volRootT` is above 1 and paths are few. Measured at S = 100, T = 1 and r 3% only.
+- **The implied vol** is that of a call (a put's is the call's at the same strike and expiry, by parity). Where vega is below 1e-7 x (S + K e^{-rT}) per vol point the price barely moves with vol, and the solver can return a vol that reproduces the price but is far from the one that made it; within 1e-12 of S + K e^{-rT} of the lower bound (a price at the in-the-money bound, or a tiny one far out of the money) the two builds' rounding decides, and one may refuse the price, or stop at 100 iterations, where the other solves it. For a call price exponentially small beside the spot the solver stops at 100 iterations and refuses with `not_converged`; before the cdf change the module instead returned a wrong vol without warning, 158.25% for a price whose vol is 50% (S = 50, K = 100, T = 1/365, r 0).
+- **A study, not a trading tool**: European options under Black-Scholes with constant rate and volatility, no dividends, no early exercise, no rho. The checks show the module computes the model as the native library does, not that the model describes a market.
+
+Known limits: the formula subtracts one term from another, so the library's price can come out a little below zero by rounding (natively, 4 times in the samples, by at most 4.94e-324 of S + K e^{-rT}; the old cdf gave more); `price` and `closedForm` return 0 instead, but the Greeks are returned as computed, so one that rounds to zero can print as `-0.0000` with `toFixed` (`(Math.round(x * 1e4) / 1e4 || 0).toFixed(4)` prints `0.0000`); the normal cdf is computed as erfc(-x / sqrt(2)) / 2, which keeps its relative accuracy in the lower tail (within 1.2e-13 of an 800-digit reference down to x = -37, and small prices within 1.5e-10 in the cases of `tests/test_normal.cpp`), but where a price is the difference of two nearly equal terms its error is still about 1e-16 x (S + K e^{-rT}) in absolute terms; the module is built for browsers' main thread and Node (`-sENVIRONMENT=web,node`), not for a Web Worker; and it was tested in Node only, on macOS (no browser, no Linux).
 
 ## License
 

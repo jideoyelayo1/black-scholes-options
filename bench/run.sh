@@ -14,7 +14,9 @@ cd "$(dirname "$0")/.."
 } > bench/environment.txt
 
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release > /dev/null
-cmake --build build > /dev/null
+# every target rebuilt: make compares times to the second, so a header changed within the second of a
+# build could otherwise leave a binary built from the old header
+cmake --build build --clean-first > /dev/null
 { ./build/test_pricing; ./build/test_mc; } | tee bench/test_output.txt
 ./build/study bench "${1:-1000}" | tee bench/study_output.txt
 
